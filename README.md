@@ -24,7 +24,12 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
    saat harga berada di dalam zona HTF
 4. **Batch processing** — pair diproses per-batch (default 5 pair) dengan jeda antar batch
    agar tidak kena rate limit
-5. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
+5. **Kontrol jumlah alert**:
+   - **Filter volume minimum pair** — pair dengan volume 24h di bawah `MIN_VOLUME_USD` di-skip
+     dari scan (safety net tambahan selain top-N by volume)
+   - **Cooldown per pair** — setelah satu pair kirim alert, pair itu tidak akan kirim alert lagi
+     selama `ALERT_COOLDOWN_MINUTES`, meskipun ada zona OB lain yang valid pada saat itu
+6. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
 
 ## Environment Variables (set di Railway > Variables)
 
@@ -37,6 +42,8 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 | `BATCH_SIZE` | Tidak | Default `5` |
 | `BATCH_DELAY_SECONDS` | Tidak | Default `2` |
 | `SYMBOL_REFRESH_HOURS` | Tidak | Default `6` |
+| `MIN_VOLUME_USD` | Tidak | Default `5000000` ($5 juta) — skip pair dengan volume 24h di bawah ini |
+| `ALERT_COOLDOWN_MINUTES` | Tidak | Default `60` — jeda minimum antar alert untuk pair yang sama |
 | `HTF_LIST` | Tidak | Default `1D,4H` — pisahkan dengan koma, format OKX |
 | `LTF` | Tidak | Default `1H` |
 | `LOOKBACK_CANDLES` | Tidak | Default `50` |
