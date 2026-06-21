@@ -31,6 +31,10 @@ PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))
 BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", 2))
 SYMBOL_REFRESH_HOURS = int(os.environ.get("SYMBOL_REFRESH_HOURS", 6))
+MIN_VOLUME_USD = float(os.environ.get("MIN_VOLUME_USD", 5_000_000))  # skip pair dengan volume 24h di bawah ini
+
+# Kontrol jumlah alert
+ALERT_COOLDOWN_MINUTES = int(os.environ.get("ALERT_COOLDOWN_MINUTES", 60))  # jeda minimum antar alert per pair
 
 OKX_BASE_URL = "https://www.okx.com"
 REQUEST_TIMEOUT = 10
@@ -44,6 +48,9 @@ active_zones = {}
 # Cache daftar top pair, di-refresh berkala
 top_pairs_cache = {"symbols": [], "last_refresh": 0}
 
+# Timestamp alert terakhir per pair, untuk cooldown: { "BTC-USDT-SWAP": 1719900000.0, ... }
+last_alert_time = {}
+
 
 def okx_get(path: str, params: dict) -> dict:
     resp = requests.get(f"{OKX_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT)
@@ -55,10 +62,15 @@ def okx_get(path: str, params: dict) -> dict:
 
 
 def get_top_volume_pairs(n: int, quote: str) -> list:
-    """Ambil n pair USDT-margined perpetual swap dengan volume 24h tertinggi."""
+    """Ambil n pair USDT-margined perpetual swap dengan volume 24h tertinggi,
+    dan skip pair dengan volume di bawah MIN_VOLUME_USD (safety net agar tidak
+    memproses pair dengan likuiditas terlalu kecil)."""
     data = okx_get("/api/v5/market/tickers", {"instType": "SWAP"})
     tickers = data.get("data", [])
-    filtered = [t for t in tickers if t["instId"].endswith(f"-{quote}-SWAP")]
+    filtered = [
+        t for t in tickers
+        if t["instId"].endswith(f"-{quote}-SWAP") and float(t.get("volCcy24h", 0)) >= MIN_VOLUME_USD
+    ]
     filtered.sort(key=lambda t: float(t.get("volCcy24h", 0)), reverse=True)
     return [t["instId"] for t in filtered[:n]]
 
@@ -198,6 +210,13 @@ async def check_symbol(app, symbol: str):
                 if not ltf_shows_reaction(ltf_df, zone):
                     continue
 
+                # Cooldown: skip alert kalau pair ini baru saja kirim alert (apapun jenisnya)
+                now = time.time()
+                last_sent = last_alert_time.get(symbol, 0)
+                if (now - last_sent) < ALERT_COOLDOWN_MINUTES * 60:
+                    zone["mitigated"] = True  # tetap tandai biar tidak dicek ulang terus, tapi tidak kirim alert
+                    continue
+
                 emoji = "🟢" if zone["type"] == "bullish" else "🔴"
                 label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
                 await app.bot.send_message(
@@ -210,6 +229,7 @@ async def check_symbol(app, symbol: str):
                     ),
                 )
                 zone["mitigated"] = True
+                last_alert_time[symbol] = now
 
     except Exception as e:
         logger.error(f"Gagal cek {symbol}: {e}")
@@ -237,9 +257,10 @@ async def start(update, context: ContextTypes.DEFAULT_TYPE):
     symbols = get_active_symbols()
     await update.message.reply_text(
         f"Bot alert Order Block (multi-pair, OKX Futures) aktif ✅\n"
-        f"Memantau top {len(symbols)} pair by volume ({PAIR_QUOTE})\n"
+        f"Memantau top {len(symbols)} pair by volume ({PAIR_QUOTE}, min ${MIN_VOLUME_USD:,.0f})\n"
         f"Zona dicari di: {', '.join(HTF_LIST)}\n"
         f"Konfirmasi di: {LTF}\n"
+        f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit per pair\n"
         f"Cek tiap {CHECK_INTERVAL_MINUTES} menit.\n\n"
         f"Gunakan /pairs untuk lihat daftar pair yang dipantau.\n"
         f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTC-USDT-SWAP)."
