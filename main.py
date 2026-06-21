@@ -7,6 +7,7 @@ import pandas as pd
 from typing import Optional
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import db
 
 # ── Konfigurasi ──────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -310,11 +311,60 @@ async def check_symbol(app, symbol: str) -> bool:
                 zone["mitigated"] = True
                 last_alert_time[symbol] = now
 
+                try:
+                    db.record_alert(
+                        symbol=symbol, zone_type=zone["type"], htf=htf, ltf=LTF,
+                        entry_price=current_price, zone_top=zone["top"], zone_bottom=zone["bottom"],
+                        invalidation=invalidation, target=target,
+                    )
+                except Exception as e:
+                    logger.error(f"Gagal simpan alert ke database: {e}")
+
         return True
 
     except Exception as e:
         logger.error(f"Gagal cek {symbol}: {e}")
         return False
+
+
+async def check_open_alerts():
+    """Cek semua alert berstatus 'open' di database: apakah harga sekarang sudah
+    mencapai target (hit_target) atau malah menembus invalidasi (invalidated).
+    Dipanggil tiap siklus scan agar histori tetap terupdate."""
+    try:
+        open_alerts = db.get_open_alerts()
+    except Exception as e:
+        logger.error(f"Gagal ambil open alerts dari database: {e}")
+        return
+
+    if not open_alerts:
+        return
+
+    # Group by symbol biar tidak fetch harga berkali-kali untuk symbol yang sama
+    symbols_needed = {a["symbol"] for a in open_alerts}
+    current_prices = {}
+    for symbol in symbols_needed:
+        try:
+            df = fetch_klines_df(symbol, LTF, 2)
+            current_prices[symbol] = float(df.iloc[-1]["close"])
+        except Exception as e:
+            logger.warning(f"Gagal ambil harga terkini {symbol} untuk cek open alert: {e}")
+
+    for alert in open_alerts:
+        price = current_prices.get(alert["symbol"])
+        if price is None:
+            continue
+
+        if alert["zone_type"] == "bullish":
+            if alert["target"] is not None and price >= alert["target"]:
+                db.resolve_alert(alert["id"], "hit_target")
+            elif price <= alert["invalidation"]:
+                db.resolve_alert(alert["id"], "invalidated")
+        else:  # bearish
+            if alert["target"] is not None and price <= alert["target"]:
+                db.resolve_alert(alert["id"], "hit_target")
+            elif price >= alert["invalidation"]:
+                db.resolve_alert(alert["id"], "invalidated")
 
 
 async def send_health_alert(app, failed: int, total: int):
@@ -361,6 +411,8 @@ async def check_and_alert(app):
     if failure_pct >= FAILURE_ALERT_THRESHOLD_PERCENT:
         await send_health_alert(app, failed_count, total)
 
+    await check_open_alerts()
+
 
 # ── Command handlers ─────────────────────────────────────────
 async def start(update, context: ContextTypes.DEFAULT_TYPE):
@@ -373,7 +425,8 @@ async def start(update, context: ContextTypes.DEFAULT_TYPE):
         f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit per pair\n"
         f"Cek tiap {CHECK_INTERVAL_MINUTES} menit.\n\n"
         f"Gunakan /pairs untuk lihat daftar pair yang dipantau.\n"
-        f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTC-USDT-SWAP)."
+        f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTC-USDT-SWAP).\n"
+        f"Gunakan /stats untuk lihat ringkasan performa alert."
     )
 
 
@@ -416,6 +469,32 @@ async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Gagal ambil data untuk {symbol}: {e}")
 
 
+async def stats_now(update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        stats = db.get_stats()
+    except Exception as e:
+        await update.message.reply_text(f"Gagal ambil statistik dari database: {e}")
+        return
+
+    win_rate_text = f"{stats['win_rate']:.1f}%" if stats["win_rate"] is not None else "belum ada data selesai"
+
+    lines = [
+        "📈 Statistik Alert Order Block\n",
+        f"Total alert: {stats['total']}",
+        f"Masih berjalan (open): {stats['open']}",
+        f"Kena target: {stats['hit_target']}",
+        f"Invalidasi: {stats['invalidated']}",
+        f"Win rate: {win_rate_text}",
+    ]
+
+    if stats["top_pairs"]:
+        lines.append("\n🔝 Pair paling sering alert:")
+        for p in stats["top_pairs"]:
+            lines.append(f"  {p['symbol']}: {p['count']}x")
+
+    await update.message.reply_text("\n".join(lines))
+
+
 async def on_startup(app):
     """Dipanggil setelah event loop bot aktif — aman untuk start scheduler di sini."""
     scheduler = AsyncIOScheduler()
@@ -428,10 +507,19 @@ def main():
     if not BOT_TOKEN or not CHAT_ID:
         raise RuntimeError("BOT_TOKEN dan CHAT_ID wajib di-set di environment variables")
 
+    try:
+        db.init_db()
+    except Exception as e:
+        raise RuntimeError(
+            f"Gagal inisialisasi database: {e}\n"
+            f"Pastikan PostgreSQL addon sudah ditambahkan dan ter-link ke service ini di Railway."
+        )
+
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pairs", pairs_now))
     app.add_handler(CommandHandler("zones", zones_now))
+    app.add_handler(CommandHandler("stats", stats_now))
 
     logger.info("Bot mulai polling...")
     app.run_polling()
