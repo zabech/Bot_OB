@@ -1,20 +1,23 @@
-# Telegram Bot - Order Block Alert Multi-Pair (Binance Futures)
+# Telegram Bot - Order Block Alert Multi-Pair (Bybit Futures)
 
-Bot Telegram yang memindai **banyak pair sekaligus** di Binance Futures (USDT-M), mendeteksi zona
-**Order Block** di beberapa timeframe, dan mengirim alert saat harga memasuki zona dengan konfirmasi
-reaksi di timeframe lebih kecil.
+Bot Telegram yang memindai **banyak pair sekaligus** di Bybit Futures (linear USDT perpetual),
+mendeteksi zona **Order Block** di beberapa timeframe, dan mengirim alert saat harga memasuki
+zona dengan konfirmasi reaksi di timeframe lebih kecil.
+
+> Sebelumnya bot ini memakai Binance API, namun diganti ke **Bybit** karena Binance API
+> memblokir akses dari banyak data center cloud (termasuk sebagian server Railway).
 
 ## Cara Kerja
 
-1. **Pemilihan pair** — bot otomatis ambil **top N pair by volume 24 jam** dari Binance Futures (default top 30),
-   dan refresh daftar ini secara berkala (default tiap 6 jam) agar selalu mengikuti pair paling aktif.
+1. **Pemilihan pair** — bot otomatis ambil **top N pair by volume 24 jam** dari Bybit Futures
+   (default top 30), refresh berkala (default tiap 6 jam)
 2. **Deteksi zona (HTF)** — default `1D` dan `4H`, dicari order block:
    - Bullish OB (Demand) — candle merah terakhir sebelum lonjakan naik kuat
    - Bearish OB (Supply) — candle hijau terakhir sebelum penurunan kuat
 3. **Konfirmasi (LTF)** — default `1H`, alert hanya dikirim jika candle LTF menunjukkan reaksi
-   (mulai berbalik arah) saat harga berada di dalam zona HTF
-4. **Batch processing** — pair diproses per-batch (default 5 pair sekaligus) dengan jeda antar batch
-   agar tidak kena rate limit Binance API
+   saat harga berada di dalam zona HTF
+4. **Batch processing** — pair diproses per-batch (default 5 pair) dengan jeda antar batch
+   agar tidak kena rate limit
 5. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
 
 ## Environment Variables (set di Railway > Variables)
@@ -23,28 +26,21 @@ reaksi di timeframe lebih kecil.
 |---|---|---|
 | `BOT_TOKEN` | Ya | Token dari @BotFather |
 | `CHAT_ID` | Ya | Chat ID Telegram kamu |
-| `BINANCE_API_KEY` | Tidak | Tidak wajib untuk data publik |
-| `BINANCE_API_SECRET` | Tidak | Sama seperti di atas |
-| `TOP_N_PAIRS` | Tidak | Default `30` — jumlah pair top-volume yang dipantau |
-| `PAIR_QUOTE` | Tidak | Default `USDT` — hanya pair dengan quote currency ini |
-| `BATCH_SIZE` | Tidak | Default `5` — jumlah pair diproses bersamaan per batch |
-| `BATCH_DELAY_SECONDS` | Tidak | Default `2` — jeda antar batch (detik) |
-| `SYMBOL_REFRESH_HOURS` | Tidak | Default `6` — seberapa sering daftar top pair di-refresh |
-| `HTF_LIST` | Tidak | Default `1d,4h` — timeframe tempat zona OB dicari |
-| `LTF` | Tidak | Default `1h` — timeframe konfirmasi reaksi harga |
+| `BYBIT_API_KEY` | Tidak | Tidak wajib untuk data publik (kline, ticker) |
+| `BYBIT_API_SECRET` | Tidak | Sama seperti di atas |
+| `TOP_N_PAIRS` | Tidak | Default `30` |
+| `PAIR_QUOTE` | Tidak | Default `USDT` |
+| `BATCH_SIZE` | Tidak | Default `5` |
+| `BATCH_DELAY_SECONDS` | Tidak | Default `2` |
+| `SYMBOL_REFRESH_HOURS` | Tidak | Default `6` |
+| `HTF_LIST` | Tidak | Default `D,240` (1D, 4H) — pisahkan dengan koma, format Bybit |
+| `LTF` | Tidak | Default `60` (1H) |
 | `LOOKBACK_CANDLES` | Tidak | Default `50` |
 | `IMPULSE_MIN_PERCENT` | Tidak | Default `1.5` |
 | `MAX_ACTIVE_ZONES_PER_TF` | Tidak | Default `3` |
-| `CHECK_INTERVAL_MINUTES` | Tidak | Default `15` — seberapa sering scan semua pair |
+| `CHECK_INTERVAL_MINUTES` | Tidak | Default `15` |
 
-## Estimasi Beban API
-
-Tiap siklus scan = `jumlah pair × (jumlah HTF + 1 LTF)` request ke Binance.
-Contoh default: 30 pair × 3 timeframe = 90 request per siklus, dibagi batch 5 → 18 batch dengan jeda 2 detik
-(~36 detik total, jauh di bawah limit Binance Futures yang cukup longgar untuk endpoint publik).
-
-Kalau ingin pantau lebih banyak pair atau timeframe lebih sering, naikkan `BATCH_DELAY_SECONDS` atau
-turunkan `BATCH_SIZE` supaya lebih aman dari rate limit.
+**Format interval Bybit:** `1` `3` `5` `15` `30` `60` `120` `240` `360` `720` (menit), `D` (hari), `W` (minggu), `M` (bulan)
 
 ## Cara Dapat CHAT_ID
 
@@ -60,9 +56,10 @@ turunkan `BATCH_SIZE` supaya lebih aman dari rate limit.
 
 ## Catatan
 
-Deteksi order block di sini adalah pendekatan umum/sederhana (rule-based), bukan standar baku tunggal.
-Memantau banyak pair sekaligus juga berarti makin banyak alert — sesuaikan `TOP_N_PAIRS` dan parameter
-deteksi agar tidak membanjiri chat kamu. Jangan jadikan satu-satunya basis keputusan trading.
+- Deteksi order block di sini adalah pendekatan umum/sederhana (rule-based), bukan standar baku tunggal.
+- Memantau banyak pair sekaligus berarti makin banyak alert — sesuaikan `TOP_N_PAIRS` dan parameter
+  deteksi agar tidak membanjiri chat kamu.
+- Jangan jadikan satu-satunya basis keputusan trading.
 
 ## Deploy ke Railway
 
