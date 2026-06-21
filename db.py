@@ -136,3 +136,52 @@ def get_stats():
         }
     finally:
         conn.close()
+
+
+def get_daily_stats():
+    """Hitung ringkasan statistik untuk alert yang dibuat dalam 24 jam terakhir (rolling)."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT status, COUNT(*) as count
+                FROM alerts
+                WHERE created_at >= now() - INTERVAL '24 hours'
+                GROUP BY status;
+            """)
+            rows = cur.fetchall()
+
+            cur.execute("""
+                SELECT COUNT(*) as total
+                FROM alerts
+                WHERE created_at >= now() - INTERVAL '24 hours';
+            """)
+            total = cur.fetchone()["total"]
+
+            cur.execute("""
+                SELECT symbol, COUNT(*) as count
+                FROM alerts
+                WHERE created_at >= now() - INTERVAL '24 hours'
+                GROUP BY symbol
+                ORDER BY count DESC
+                LIMIT 5;
+            """)
+            top_pairs = cur.fetchall()
+
+        status_counts = {row["status"]: row["count"] for row in rows}
+        hit = status_counts.get("hit_target", 0)
+        invalid = status_counts.get("invalidated", 0)
+        open_count = status_counts.get("open", 0)
+        resolved = hit + invalid
+        win_rate = (hit / resolved * 100) if resolved > 0 else None
+
+        return {
+            "total": total,
+            "open": open_count,
+            "hit_target": hit,
+            "invalidated": invalid,
+            "win_rate": win_rate,
+            "top_pairs": top_pairs,
+        }
+    finally:
+        conn.close()
