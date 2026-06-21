@@ -45,7 +45,9 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
    bot mengecek semua alert yang masih "open": apakah harga sudah mencapai target (`hit_target`)
    atau malah menembus invalidasi (`invalidated`). Gunakan `/stats` untuk lihat ringkasan win rate
    dan pair paling sering muncul alert.
-9. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
+9. **Ringkasan harian otomatis** — 1x sehari (default jam 00:00 UTC = 08:00 WITA), bot kirim
+   ringkasan statistik 24 jam terakhir tanpa perlu diminta, jadi kamu tidak perlu cek `/stats` manual tiap hari.
+10. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
 
 ## Environment Variables (set di Railway > Variables)
 
@@ -65,6 +67,8 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 | `API_RETRY_BACKOFF_SECONDS` | Tidak | Default `2` — jeda awal retry, dikali 2 tiap percobaan (2s, 4s, 8s...) |
 | `FAILURE_ALERT_THRESHOLD_PERCENT` | Tidak | Default `50` — kirim health alert jika % pair gagal ≥ ini |
 | `HEALTH_ALERT_COOLDOWN_MINUTES` | Tidak | Default `60` — jeda minimum antar health alert |
+| `DAILY_SUMMARY_HOUR_UTC` | Tidak | Default `0` — jam (UTC, 0-23) ringkasan harian dikirim |
+| `DAILY_SUMMARY_MINUTE_UTC` | Tidak | Default `0` — menit (UTC, 0-59) ringkasan harian dikirim |
 | `HTF_LIST` | Tidak | Default `1D,4H` — pisahkan dengan koma, format OKX |
 | `LTF` | Tidak | Default `1H` |
 | `LOOKBACK_CANDLES` | Tidak | Default `50` |
@@ -76,6 +80,10 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 **Format interval OKX:** `1m 3m 5m 15m 30m 1H 2H 4H 6H 12H 1D 1W 1M` (huruf besar untuk jam/hari/minggu/bulan)
 
 **Format symbol OKX:** `BTC-USDT-SWAP`, `ETH-USDT-SWAP`, dst (bukan `BTCUSDT` seperti exchange lain)
+
+**Catatan timezone ringkasan harian:** server Railway berjalan di UTC, bukan waktu lokal kamu.
+Default `DAILY_SUMMARY_HOUR_UTC=0` berarti jam 00:00 UTC, yang setara dengan **08:00 WITA** (UTC+8).
+Kalau mau jam lain, hitung dulu selisihnya — misal ingin 07:00 WITA, set `DAILY_SUMMARY_HOUR_UTC=23` (hari sebelumnya dalam UTC).
 
 ## Cara Dapat CHAT_ID
 
