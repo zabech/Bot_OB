@@ -35,7 +35,13 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
    - **Health alert** — kalau dalam satu siklus scan banyak pair gagal dicek (≥ `FAILURE_ALERT_THRESHOLD_PERCENT`),
      bot kirim 1 notifikasi peringatan ke Telegram (dengan cooldown sendiri agar tidak spam),
      sehingga kamu tahu kalau bot "diam karena bermasalah" vs "diam karena memang tidak ada sinyal"
-7. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
+7. **Info risk/reward di alert** — tiap alert menyertakan:
+   - **Invalidasi** — harga yang membuat zona OB ini batal (bottom zona untuk bullish, top zona untuk bearish)
+   - **Target terdekat** — zona OB berlawanan terdekat di sisi yang relevan (lintas semua HTF pair tersebut),
+     sebagai referensi kasar, bukan rekomendasi entry/exit. Kalau tidak ada zona berlawanan yang valid,
+     ditulis "tidak tersedia"
+   - **Estimasi R:R** — rasio kasar jarak ke target dibanding jarak ke invalidasi
+8. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
 
 ## Environment Variables (set di Railway > Variables)
 
@@ -81,6 +87,8 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 ## Catatan
 
 - Deteksi order block di sini adalah pendekatan umum/sederhana (rule-based), bukan standar baku tunggal.
+- Target dan rasio R:R di alert adalah **estimasi kasar berbasis zona OB lain yang sudah terdeteksi**,
+  bukan analisis lengkap dan bukan rekomendasi entry/exit. Selalu lakukan analisis sendiri.
 - Memantau banyak pair sekaligus berarti makin banyak alert — sesuaikan `TOP_N_PAIRS` dan parameter
   deteksi agar tidak membanjiri chat kamu.
 - Jangan jadikan satu-satunya basis keputusan trading.
