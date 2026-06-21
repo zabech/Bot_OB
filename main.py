@@ -2,67 +2,64 @@ import os
 import time
 import logging
 import asyncio
+import requests
 import pandas as pd
-from pybit.unified_trading import HTTP
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ── Konfigurasi ──────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
-BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY", "")
-BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET", "")
 
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", 15))
 
 # Timeframe: HTF (higher) menentukan zona order block utama,
 # LTF (lower) dipakai untuk konfirmasi reaksi harga sebelum alert dikirim.
-# Format Bybit: "1","3","5","15","30","60","120","240","360","720","D","W","M"
-HTF_LIST = os.environ.get("HTF_LIST", "D,240").split(",")   # default: 1D, 4H
-LTF = os.environ.get("LTF", "60")                            # default: 1H
+# Format OKX: "1m","3m","5m","15m","30m","1H","2H","4H","6H","12H","1D","1W","1M"
+HTF_LIST = os.environ.get("HTF_LIST", "1D,4H").split(",")
+LTF = os.environ.get("LTF", "1H")
 
 # Parameter deteksi Order Block
 LOOKBACK_CANDLES = int(os.environ.get("LOOKBACK_CANDLES", 50))
 IMPULSE_MIN_PERCENT = float(os.environ.get("IMPULSE_MIN_PERCENT", 1.5))
 MAX_ACTIVE_ZONES_PER_TF = int(os.environ.get("MAX_ACTIVE_ZONES_PER_TF", 3))
 
-# Scanner multi-pair (Bybit Futures/Derivatives - linear USDT perpetual)
+# Scanner multi-pair (OKX Futures - USDT-margined swap/perpetual)
 TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", 30))
 PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))
 BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", 2))
 SYMBOL_REFRESH_HOURS = int(os.environ.get("SYMBOL_REFRESH_HOURS", 6))
 
+OKX_BASE_URL = "https://www.okx.com"
+REQUEST_TIMEOUT = 10
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-bybit_client = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
-
-# Zona aktif per (symbol, timeframe): { "BTCUSDT": {"D": [...], "240": [...]}, ... }
+# Zona aktif per (symbol, timeframe): { "BTC-USDT-SWAP": {"1D": [...], "4H": [...]}, ... }
 active_zones = {}
 
 # Cache daftar top pair, di-refresh berkala
 top_pairs_cache = {"symbols": [], "last_refresh": 0}
 
-# Label timeframe yang enak dibaca manusia (untuk pesan alert)
-TF_LABELS = {
-    "1": "1m", "3": "3m", "5": "5m", "15": "15m", "30": "30m",
-    "60": "1h", "120": "2h", "240": "4h", "360": "6h", "720": "12h",
-    "D": "1D", "W": "1W", "M": "1M",
-}
 
-
-def tf_label(tf: str) -> str:
-    return TF_LABELS.get(tf, tf)
+def okx_get(path: str, params: dict) -> dict:
+    resp = requests.get(f"{OKX_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("code") != "0":
+        raise RuntimeError(f"OKX API error: {data.get('msg')}")
+    return data
 
 
 def get_top_volume_pairs(n: int, quote: str) -> list:
-    """Ambil n pair linear perpetual (futures) dengan volume 24h tertinggi, quote tertentu."""
-    result = bybit_client.get_tickers(category="linear")
-    tickers = result.get("result", {}).get("list", [])
-    filtered = [t for t in tickers if t["symbol"].endswith(quote)]
-    filtered.sort(key=lambda t: float(t.get("turnover24h", 0)), reverse=True)
-    return [t["symbol"] for t in filtered[:n]]
+    """Ambil n pair USDT-margined perpetual swap dengan volume 24h tertinggi."""
+    data = okx_get("/api/v5/market/tickers", {"instType": "SWAP"})
+    tickers = data.get("data", [])
+    filtered = [t for t in tickers if t["instId"].endswith(f"-{quote}-SWAP")]
+    filtered.sort(key=lambda t: float(t.get("volCcy24h", 0)), reverse=True)
+    return [t["instId"] for t in filtered[:n]]
 
 
 def get_active_symbols() -> list:
@@ -80,14 +77,12 @@ def get_active_symbols() -> list:
 
 
 def fetch_klines_df(symbol: str, interval: str, limit: int) -> pd.DataFrame:
-    result = bybit_client.get_kline(
-        category="linear", symbol=symbol, interval=interval, limit=limit
-    )
-    rows = result.get("result", {}).get("list", [])
-    # Bybit mengembalikan data terbaru lebih dulu -> balik urutannya jadi kronologis
+    data = okx_get("/api/v5/market/candles", {"instId": symbol, "bar": interval, "limit": limit})
+    rows = data.get("data", [])
+    # OKX mengembalikan data terbaru lebih dulu -> balik urutannya jadi kronologis
     rows = list(reversed(rows))
     df = pd.DataFrame(rows, columns=[
-        "start_time", "open", "high", "low", "close", "volume", "turnover"
+        "ts", "open", "high", "low", "close", "vol", "volCcy", "volCcyQuote", "confirm"
     ])
     for col in ["open", "high", "low", "close"]:
         df[col] = df[col].astype(float)
@@ -183,7 +178,7 @@ async def check_symbol(app, symbol: str):
                     chat_id=CHAT_ID,
                     text=(
                         f"{emoji} {symbol} memasuki Order Block {label}\n"
-                        f"Timeframe zona: {tf_label(htf)} | Konfirmasi: {tf_label(LTF)}\n"
+                        f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
                         f"Harga sekarang: {current_price}\n"
                         f"Zona: {zone['bottom']} - {zone['top']}"
                     ),
@@ -215,13 +210,13 @@ async def check_and_alert(app):
 async def start(update, context: ContextTypes.DEFAULT_TYPE):
     symbols = get_active_symbols()
     await update.message.reply_text(
-        f"Bot alert Order Block (multi-pair, Bybit Futures) aktif ✅\n"
+        f"Bot alert Order Block (multi-pair, OKX Futures) aktif ✅\n"
         f"Memantau top {len(symbols)} pair by volume ({PAIR_QUOTE})\n"
-        f"Zona dicari di: {', '.join(tf_label(tf) for tf in HTF_LIST)}\n"
-        f"Konfirmasi di: {tf_label(LTF)}\n"
+        f"Zona dicari di: {', '.join(HTF_LIST)}\n"
+        f"Konfirmasi di: {LTF}\n"
         f"Cek tiap {CHECK_INTERVAL_MINUTES} menit.\n\n"
         f"Gunakan /pairs untuk lihat daftar pair yang dipantau.\n"
-        f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTCUSDT)."
+        f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTC-USDT-SWAP)."
     )
 
 
@@ -238,7 +233,7 @@ async def pairs_now(update, context: ContextTypes.DEFAULT_TYPE):
 async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
-        await update.message.reply_text("Gunakan format: /zones SYMBOL\nContoh: /zones BTCUSDT")
+        await update.message.reply_text("Gunakan format: /zones SYMBOL\nContoh: /zones BTC-USDT-SWAP")
         return
 
     symbol = args[0].upper()
@@ -251,7 +246,7 @@ async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
             htf_df = fetch_klines_df(symbol, htf, LOOKBACK_CANDLES)
             zones = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
 
-            lines.append(f"\n📊 Timeframe {tf_label(htf)}:")
+            lines.append(f"\n📊 Timeframe {htf}:")
             if not zones:
                 lines.append("  Belum ada order block terdeteksi.")
                 continue
