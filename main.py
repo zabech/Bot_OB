@@ -36,6 +36,14 @@ MIN_VOLUME_USD = float(os.environ.get("MIN_VOLUME_USD", 5_000_000))  # skip pair
 # Kontrol jumlah alert
 ALERT_COOLDOWN_MINUTES = int(os.environ.get("ALERT_COOLDOWN_MINUTES", 60))  # jeda minimum antar alert per pair
 
+# Reliability: retry untuk request API yang gagal sementara
+API_MAX_RETRIES = int(os.environ.get("API_MAX_RETRIES", 3))
+API_RETRY_BACKOFF_SECONDS = float(os.environ.get("API_RETRY_BACKOFF_SECONDS", 2))  # dikali 2 tiap percobaan
+
+# Reliability: notifikasi kalau banyak pair gagal dalam satu siklus (indikasi API/koneksi bermasalah)
+FAILURE_ALERT_THRESHOLD_PERCENT = float(os.environ.get("FAILURE_ALERT_THRESHOLD_PERCENT", 50))  # % pair gagal
+HEALTH_ALERT_COOLDOWN_MINUTES = int(os.environ.get("HEALTH_ALERT_COOLDOWN_MINUTES", 60))  # jeda antar health alert
+
 OKX_BASE_URL = "https://www.okx.com"
 REQUEST_TIMEOUT = 10
 
@@ -51,14 +59,29 @@ top_pairs_cache = {"symbols": [], "last_refresh": 0}
 # Timestamp alert terakhir per pair, untuk cooldown: { "BTC-USDT-SWAP": 1719900000.0, ... }
 last_alert_time = {}
 
+# Timestamp health alert terakhir, untuk hindari spam notifikasi "bot bermasalah"
+last_health_alert_time = {"ts": 0}
+
 
 def okx_get(path: str, params: dict) -> dict:
-    resp = requests.get(f"{OKX_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT)
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("code") != "0":
-        raise RuntimeError(f"OKX API error: {data.get('msg')}")
-    return data
+    """Request ke OKX API dengan retry otomatis (exponential backoff) untuk
+    menangani gangguan jaringan/rate-limit sementara."""
+    last_error = None
+    for attempt in range(API_MAX_RETRIES):
+        try:
+            resp = requests.get(f"{OKX_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("code") != "0":
+                raise RuntimeError(f"OKX API error: {data.get('msg')}")
+            return data
+        except Exception as e:
+            last_error = e
+            if attempt < API_MAX_RETRIES - 1:
+                wait = API_RETRY_BACKOFF_SECONDS * (2 ** attempt)
+                logger.warning(f"Request gagal ({e}), retry dalam {wait:.0f}s [percobaan {attempt + 1}/{API_MAX_RETRIES}]")
+                time.sleep(wait)
+    raise last_error
 
 
 def get_top_volume_pairs(n: int, quote: str) -> list:
@@ -183,8 +206,9 @@ def merge_zone_state(old_zones: list, new_zones: list) -> list:
     return new_zones
 
 
-async def check_symbol(app, symbol: str):
-    """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF."""
+async def check_symbol(app, symbol: str) -> bool:
+    """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF.
+    Return True kalau berhasil dicek, False kalau gagal (untuk health tracking)."""
     global active_zones
     if symbol not in active_zones:
         active_zones[symbol] = {tf: [] for tf in HTF_LIST}
@@ -231,8 +255,32 @@ async def check_symbol(app, symbol: str):
                 zone["mitigated"] = True
                 last_alert_time[symbol] = now
 
+        return True
+
     except Exception as e:
         logger.error(f"Gagal cek {symbol}: {e}")
+        return False
+
+
+async def send_health_alert(app, failed: int, total: int):
+    """Kirim notifikasi ke Telegram kalau terlalu banyak pair gagal dicek dalam satu siklus,
+    dengan cooldown agar tidak spam notifikasi yang sama berulang-ulang."""
+    now = time.time()
+    if (now - last_health_alert_time["ts"]) < HEALTH_ALERT_COOLDOWN_MINUTES * 60:
+        return  # masih dalam cooldown, skip
+
+    try:
+        await app.bot.send_message(
+            chat_id=CHAT_ID,
+            text=(
+                f"⚠️ Peringatan: {failed}/{total} pair gagal dicek di siklus terakhir.\n"
+                f"Kemungkinan ada gangguan koneksi atau API OKX sedang bermasalah.\n"
+                f"Bot tetap berjalan dan akan terus mencoba di siklus berikutnya."
+            ),
+        )
+        last_health_alert_time["ts"] = now
+    except Exception as e:
+        logger.error(f"Gagal kirim health alert: {e}")
 
 
 async def check_and_alert(app):
@@ -243,13 +291,20 @@ async def check_and_alert(app):
 
     logger.info(f"Mulai scan {len(symbols)} pair (batch size {BATCH_SIZE})...")
 
+    failed_count = 0
     for i in range(0, len(symbols), BATCH_SIZE):
         batch = symbols[i:i + BATCH_SIZE]
-        await asyncio.gather(*(check_symbol(app, s) for s in batch))
+        results = await asyncio.gather(*(check_symbol(app, s) for s in batch))
+        failed_count += results.count(False)
         if i + BATCH_SIZE < len(symbols):
             await asyncio.sleep(BATCH_DELAY_SECONDS)
 
-    logger.info("Scan selesai untuk semua pair.")
+    total = len(symbols)
+    failure_pct = (failed_count / total * 100) if total else 0
+    logger.info(f"Scan selesai: {total - failed_count}/{total} pair berhasil ({failure_pct:.0f}% gagal).")
+
+    if failure_pct >= FAILURE_ALERT_THRESHOLD_PERCENT:
+        await send_health_alert(app, failed_count, total)
 
 
 # ── Command handlers ─────────────────────────────────────────
