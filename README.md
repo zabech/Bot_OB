@@ -12,9 +12,14 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 
 1. **Pemilihan pair** — bot otomatis ambil **top N pair by volume 24 jam** dari OKX Swap market
    (default top 30), refresh berkala (default tiap 6 jam)
-2. **Deteksi zona (HTF)** — default `1D` dan `4H`, dicari order block:
+2. **Deteksi zona (HTF)** — default `1D` dan `4H`, dicari order block dengan 2 filter kualitas:
    - Bullish OB (Demand) — candle merah terakhir sebelum lonjakan naik kuat
    - Bearish OB (Supply) — candle hijau terakhir sebelum penurunan kuat
+   - **Filter volume** — candle OB harus punya volume ≥ `VOLUME_MULTIPLIER` × rata-rata volume
+     di window yang dianalisis, menyaring OB dari candle dengan partisipasi pasar lemah
+   - **Filter unmitigated** — OB yang sudah pernah ditembus penuh oleh harga (close menembus
+     sisi berlawanan zona) setelah terbentuk akan dibuang otomatis, karena sudah tidak relevan
+     lagi sebagai zona supply/demand aktif
 3. **Konfirmasi (LTF)** — default `1H`, alert hanya dikirim jika candle LTF menunjukkan reaksi
    saat harga berada di dalam zona HTF
 4. **Batch processing** — pair diproses per-batch (default 5 pair) dengan jeda antar batch
@@ -36,6 +41,7 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 | `LTF` | Tidak | Default `1H` |
 | `LOOKBACK_CANDLES` | Tidak | Default `50` |
 | `IMPULSE_MIN_PERCENT` | Tidak | Default `1.5` |
+| `VOLUME_MULTIPLIER` | Tidak | Default `1.2` — candle OB butuh volume ≥ 1.2x rata-rata window |
 | `MAX_ACTIVE_ZONES_PER_TF` | Tidak | Default `3` |
 | `CHECK_INTERVAL_MINUTES` | Tidak | Default `15` |
 
