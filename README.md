@@ -41,7 +41,11 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
      sebagai referensi kasar, bukan rekomendasi entry/exit. Kalau tidak ada zona berlawanan yang valid,
      ditulis "tidak tersedia"
    - **Estimasi R:R** — rasio kasar jarak ke target dibanding jarak ke invalidasi
-8. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
+8. **Histori & tracking performa** — tiap alert dicatat ke database PostgreSQL. Tiap siklus scan,
+   bot mengecek semua alert yang masih "open": apakah harga sudah mencapai target (`hit_target`)
+   atau malah menembus invalidasi (`invalidated`). Gunakan `/stats` untuk lihat ringkasan win rate
+   dan pair paling sering muncul alert.
+9. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
 
 ## Environment Variables (set di Railway > Variables)
 
@@ -49,6 +53,7 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 |---|---|---|
 | `BOT_TOKEN` | Ya | Token dari @BotFather |
 | `CHAT_ID` | Ya | Chat ID Telegram kamu |
+| `DATABASE_URL` | Ya | Otomatis di-inject Railway saat addon PostgreSQL ditambahkan & ter-link |
 | `TOP_N_PAIRS` | Tidak | Default `30` |
 | `PAIR_QUOTE` | Tidak | Default `USDT` |
 | `BATCH_SIZE` | Tidak | Default `5` |
@@ -83,6 +88,7 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 - `/start` — cek status bot dan jumlah pair yang dipantau
 - `/pairs` — lihat daftar pair yang sedang dipantau
 - `/zones SYMBOL` — lihat zona order block untuk pair tertentu, contoh: `/zones BTC-USDT-SWAP`
+- `/stats` — lihat ringkasan performa alert: total, win rate, breakdown per pair
 
 ## Catatan
 
@@ -93,12 +99,25 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
   deteksi agar tidak membanjiri chat kamu.
 - Jangan jadikan satu-satunya basis keputusan trading.
 
+## Setup Database (PostgreSQL di Railway)
+
+Histori alert butuh database PostgreSQL agar datanya **tidak hilang saat bot redeploy/restart**
+(Railway tidak punya persistent disk untuk file lokal).
+
+1. Buka project Railway kamu
+2. Tap **"+ New"** / **"Create"** di dalam project
+3. Pilih **Database** → **Add PostgreSQL**
+4. Railway otomatis provision database dan inject variable `DATABASE_URL` — pastikan ter-link
+   ke service bot (`worker`) ini, biasanya otomatis, tapi cek di tab **Variables** kalau tidak muncul
+5. Tabel `alerts` akan otomatis dibuat sendiri oleh bot saat pertama kali start (tidak perlu setup manual)
+
 ## Deploy ke Railway
 
 1. Push/upload repo ini ke GitHub
 2. Railway → New Project → Deploy from GitHub repo → pilih repo ini
 3. Tab **Variables** → isi `BOT_TOKEN` dan `CHAT_ID` (wajib)
-4. Railway otomatis build & jalankan sesuai `Procfile`
+4. Tambahkan PostgreSQL addon (lihat **Setup Database** di atas) — wajib, bot tidak akan jalan tanpa ini
+5. Railway otomatis build & jalankan sesuai `Procfile`
 
 ## Jalankan Lokal (opsional, untuk testing)
 
