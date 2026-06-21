@@ -29,7 +29,13 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
      dari scan (safety net tambahan selain top-N by volume)
    - **Cooldown per pair** — setelah satu pair kirim alert, pair itu tidak akan kirim alert lagi
      selama `ALERT_COOLDOWN_MINUTES`, meskipun ada zona OB lain yang valid pada saat itu
-6. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
+6. **Reliability**:
+   - **Retry otomatis** — request API yang gagal (timeout, gangguan jaringan, rate limit sementara)
+     dicoba ulang otomatis dengan exponential backoff (`API_MAX_RETRIES` kali percobaan)
+   - **Health alert** — kalau dalam satu siklus scan banyak pair gagal dicek (≥ `FAILURE_ALERT_THRESHOLD_PERCENT`),
+     bot kirim 1 notifikasi peringatan ke Telegram (dengan cooldown sendiri agar tidak spam),
+     sehingga kamu tahu kalau bot "diam karena bermasalah" vs "diam karena memang tidak ada sinyal"
+7. Tiap zona hanya kirim alert sekali (ditandai "mitigated") agar tidak spam
 
 ## Environment Variables (set di Railway > Variables)
 
@@ -44,6 +50,10 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 | `SYMBOL_REFRESH_HOURS` | Tidak | Default `6` |
 | `MIN_VOLUME_USD` | Tidak | Default `5000000` ($5 juta) — skip pair dengan volume 24h di bawah ini |
 | `ALERT_COOLDOWN_MINUTES` | Tidak | Default `60` — jeda minimum antar alert untuk pair yang sama |
+| `API_MAX_RETRIES` | Tidak | Default `3` — jumlah percobaan ulang request API yang gagal |
+| `API_RETRY_BACKOFF_SECONDS` | Tidak | Default `2` — jeda awal retry, dikali 2 tiap percobaan (2s, 4s, 8s...) |
+| `FAILURE_ALERT_THRESHOLD_PERCENT` | Tidak | Default `50` — kirim health alert jika % pair gagal ≥ ini |
+| `HEALTH_ALERT_COOLDOWN_MINUTES` | Tidak | Default `60` — jeda minimum antar health alert |
 | `HTF_LIST` | Tidak | Default `1D,4H` — pisahkan dengan koma, format OKX |
 | `LTF` | Tidak | Default `1H` |
 | `LOOKBACK_CANDLES` | Tidak | Default `50` |
