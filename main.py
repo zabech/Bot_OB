@@ -264,18 +264,22 @@ async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Gagal ambil data untuk {symbol}: {e}")
 
 
+async def on_startup(app):
+    """Dipanggil setelah event loop bot aktif — aman untuk start scheduler di sini."""
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(check_and_alert, "interval", minutes=CHECK_INTERVAL_MINUTES, args=[app])
+    scheduler.start()
+    logger.info(f"Scheduler dimulai, cek tiap {CHECK_INTERVAL_MINUTES} menit.")
+
+
 def main():
     if not BOT_TOKEN or not CHAT_ID:
         raise RuntimeError("BOT_TOKEN dan CHAT_ID wajib di-set di environment variables")
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pairs", pairs_now))
     app.add_handler(CommandHandler("zones", zones_now))
-
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(check_and_alert, "interval", minutes=CHECK_INTERVAL_MINUTES, args=[app])
-    scheduler.start()
 
     logger.info("Bot mulai polling...")
     app.run_polling()
