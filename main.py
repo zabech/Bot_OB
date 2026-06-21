@@ -4,6 +4,7 @@ import logging
 import asyncio
 import requests
 import pandas as pd
+from typing import Optional
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -206,6 +207,51 @@ def merge_zone_state(old_zones: list, new_zones: list) -> list:
     return new_zones
 
 
+def calculate_invalidation(zone: dict) -> float:
+    """Harga invalidasi: untuk bullish OB, harga break di bawah bottom zona.
+    Untuk bearish OB, harga break di atas top zona."""
+    if zone["type"] == "bullish":
+        return zone["bottom"]
+    return zone["top"]
+
+
+def find_nearest_opposite_target(zone: dict, current_price: float, all_zones_for_symbol: dict) -> Optional[float]:
+    """Cari zona OB berlawanan terdekat (lintas semua HTF pair ini) sebagai target profit kasar.
+    Bullish OB -> cari bearish OB terdekat DI ATAS harga saat ini.
+    Bearish OB -> cari bullish OB terdekat DI BAWAH harga saat ini.
+    Return None kalau tidak ada kandidat yang valid."""
+    opposite_type = "bearish" if zone["type"] == "bullish" else "bullish"
+    candidates = []
+
+    for tf_zones in all_zones_for_symbol.values():
+        for z in tf_zones:
+            if z["type"] != opposite_type:
+                continue
+            if zone["type"] == "bullish" and z["bottom"] > current_price:
+                candidates.append(z["bottom"])  # sisi terdekat zona supply dari bawah
+            elif zone["type"] == "bearish" and z["top"] < current_price:
+                candidates.append(z["top"])  # sisi terdekat zona demand dari atas
+
+    if not candidates:
+        return None
+    if zone["type"] == "bullish":
+        return min(candidates)  # target terdekat di atas
+    return max(candidates)  # target terdekat di bawah
+
+
+def calculate_risk_reward(zone: dict, current_price: float, target: Optional[float]) -> str:
+    """Hitung rasio risk:reward kasar berdasarkan jarak ke invalidasi vs jarak ke target."""
+    invalidation = calculate_invalidation(zone)
+    risk = abs(current_price - invalidation)
+    if risk == 0:
+        return "N/A"
+    if target is None:
+        return "N/A (target tidak tersedia)"
+    reward = abs(target - current_price)
+    ratio = reward / risk
+    return f"1:{ratio:.1f}"
+
+
 async def check_symbol(app, symbol: str) -> bool:
     """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF.
     Return True kalau berhasil dicek, False kalau gagal (untuk health tracking)."""
@@ -243,13 +289,22 @@ async def check_symbol(app, symbol: str) -> bool:
 
                 emoji = "🟢" if zone["type"] == "bullish" else "🔴"
                 label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
+
+                invalidation = calculate_invalidation(zone)
+                target = find_nearest_opposite_target(zone, current_price, active_zones[symbol])
+                rr = calculate_risk_reward(zone, current_price, target)
+                target_text = f"{target}" if target is not None else "tidak tersedia"
+
                 await app.bot.send_message(
                     chat_id=CHAT_ID,
                     text=(
                         f"{emoji} {symbol} memasuki Order Block {label}\n"
                         f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
                         f"Harga sekarang: {current_price}\n"
-                        f"Zona: {zone['bottom']} - {zone['top']}"
+                        f"Zona: {zone['bottom']} - {zone['top']}\n"
+                        f"Invalidasi: {invalidation}\n"
+                        f"Target terdekat: {target_text}\n"
+                        f"Estimasi R:R: {rr}"
                     ),
                 )
                 zone["mitigated"] = True
