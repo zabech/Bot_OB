@@ -23,6 +23,7 @@ LTF = os.environ.get("LTF", "1H")
 LOOKBACK_CANDLES = int(os.environ.get("LOOKBACK_CANDLES", 50))
 IMPULSE_MIN_PERCENT = float(os.environ.get("IMPULSE_MIN_PERCENT", 1.5))
 MAX_ACTIVE_ZONES_PER_TF = int(os.environ.get("MAX_ACTIVE_ZONES_PER_TF", 3))
+VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", 1.2))  # candle OB butuh volume >= 1.2x rata-rata
 
 # Scanner multi-pair (OKX Futures - USDT-margined swap/perpetual)
 TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", 30))
@@ -84,14 +85,24 @@ def fetch_klines_df(symbol: str, interval: str, limit: int) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=[
         "ts", "open", "high", "low", "close", "vol", "volCcy", "volCcyQuote", "confirm"
     ])
-    for col in ["open", "high", "low", "close"]:
+    for col in ["open", "high", "low", "close", "vol"]:
         df[col] = df[col].astype(float)
     return df
 
 
 def detect_order_blocks(df: pd.DataFrame, max_zones: int) -> list:
+    """
+    Deteksi order block dengan 2 filter kualitas tambahan:
+    1. Filter volume: candle OB harus punya volume >= VOLUME_MULTIPLIER x rata-rata
+       volume di sekitarnya (VOLUME_LOOKBACK candle sebelum-sesudah), menyaring OB
+       yang terbentuk dari candle dengan partisipasi pasar kecil/lemah.
+    2. Filter unmitigated: OB yang sudah pernah ditembus penuh oleh harga setelah
+       terbentuk (candle close menembus sisi berlawanan zona) dibuang karena sudah
+       tidak relevan lagi sebagai zona supply/demand aktif.
+    """
     zones = []
     n = len(df)
+    avg_volume = df["vol"].mean()
 
     for i in range(n - 3):
         candle = df.iloc[i]
@@ -102,21 +113,36 @@ def detect_order_blocks(df: pd.DataFrame, max_zones: int) -> list:
         if future.empty:
             continue
 
+        # Filter volume: bandingkan volume candle OB terhadap rata-rata seluruh window
+        if candle["vol"] < avg_volume * VOLUME_MULTIPLIER:
+            continue
+
+        zone_top = float(candle["high"])
+        zone_bottom = float(candle["low"])
+
+        # Semua candle setelah candle OB ini (untuk cek apakah pernah ditembus)
+        after_candle = df.iloc[i + 1:]
+
         if is_bearish_candle:
             move_pct = (future["high"].max() - candle["close"]) / candle["close"] * 100
             if move_pct >= IMPULSE_MIN_PERCENT:
-                zones.append({
-                    "type": "bullish", "top": float(candle["high"]), "bottom": float(candle["low"]),
-                    "index": i, "mitigated": False,
-                })
+                # Filter unmitigated: buang jika close pernah turun di bawah zona (ditembus penuh)
+                already_mitigated = (after_candle["close"] < zone_bottom).any()
+                if not already_mitigated:
+                    zones.append({
+                        "type": "bullish", "top": zone_top, "bottom": zone_bottom,
+                        "index": i, "mitigated": False,
+                    })
 
         if is_bullish_candle:
             move_pct = (candle["close"] - future["low"].min()) / candle["close"] * 100
             if move_pct >= IMPULSE_MIN_PERCENT:
-                zones.append({
-                    "type": "bearish", "top": float(candle["high"]), "bottom": float(candle["low"]),
-                    "index": i, "mitigated": False,
-                })
+                already_mitigated = (after_candle["close"] > zone_top).any()
+                if not already_mitigated:
+                    zones.append({
+                        "type": "bearish", "top": zone_top, "bottom": zone_bottom,
+                        "index": i, "mitigated": False,
+                    })
 
     zones.sort(key=lambda z: z["index"], reverse=True)
     return zones[:max_zones]
