@@ -7,6 +7,7 @@ import pandas as pd
 from typing import Optional
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 import db
 
 # ── Konfigurasi ──────────────────────────────────────────────
@@ -45,6 +46,10 @@ API_RETRY_BACKOFF_SECONDS = float(os.environ.get("API_RETRY_BACKOFF_SECONDS", 2)
 # Reliability: notifikasi kalau banyak pair gagal dalam satu siklus (indikasi API/koneksi bermasalah)
 FAILURE_ALERT_THRESHOLD_PERCENT = float(os.environ.get("FAILURE_ALERT_THRESHOLD_PERCENT", 50))  # % pair gagal
 HEALTH_ALERT_COOLDOWN_MINUTES = int(os.environ.get("HEALTH_ALERT_COOLDOWN_MINUTES", 60))  # jeda antar health alert
+
+# Ringkasan harian: jam dalam format UTC (jam server). Default 00:00 UTC = 08:00 WITA.
+DAILY_SUMMARY_HOUR_UTC = int(os.environ.get("DAILY_SUMMARY_HOUR_UTC", 0))
+DAILY_SUMMARY_MINUTE_UTC = int(os.environ.get("DAILY_SUMMARY_MINUTE_UTC", 0))
 
 OKX_BASE_URL = "https://www.okx.com"
 REQUEST_TIMEOUT = 10
@@ -423,7 +428,8 @@ async def start(update, context: ContextTypes.DEFAULT_TYPE):
         f"Zona dicari di: {', '.join(HTF_LIST)}\n"
         f"Konfirmasi di: {LTF}\n"
         f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit per pair\n"
-        f"Cek tiap {CHECK_INTERVAL_MINUTES} menit.\n\n"
+        f"Cek tiap {CHECK_INTERVAL_MINUTES} menit.\n"
+        f"Ringkasan harian: jam {DAILY_SUMMARY_HOUR_UTC:02d}:{DAILY_SUMMARY_MINUTE_UTC:02d} UTC.\n\n"
         f"Gunakan /pairs untuk lihat daftar pair yang dipantau.\n"
         f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTC-USDT-SWAP).\n"
         f"Gunakan /stats untuk lihat ringkasan performa alert."
@@ -469,17 +475,12 @@ async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Gagal ambil data untuk {symbol}: {e}")
 
 
-async def stats_now(update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        stats = db.get_stats()
-    except Exception as e:
-        await update.message.reply_text(f"Gagal ambil statistik dari database: {e}")
-        return
-
+def format_stats_text(stats: dict, title: str) -> str:
+    """Format dict statistik jadi teks pesan Telegram, dipakai untuk /stats dan ringkasan harian."""
     win_rate_text = f"{stats['win_rate']:.1f}%" if stats["win_rate"] is not None else "belum ada data selesai"
 
     lines = [
-        "📈 Statistik Alert Order Block\n",
+        f"{title}\n",
         f"Total alert: {stats['total']}",
         f"Masih berjalan (open): {stats['open']}",
         f"Kena target: {stats['hit_target']}",
@@ -492,15 +493,47 @@ async def stats_now(update, context: ContextTypes.DEFAULT_TYPE):
         for p in stats["top_pairs"]:
             lines.append(f"  {p['symbol']}: {p['count']}x")
 
-    await update.message.reply_text("\n".join(lines))
+    return "\n".join(lines)
+
+
+async def stats_now(update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        stats = db.get_stats()
+    except Exception as e:
+        await update.message.reply_text(f"Gagal ambil statistik dari database: {e}")
+        return
+
+    await update.message.reply_text(format_stats_text(stats, "📈 Statistik Alert Order Block (semua waktu)"))
+
+
+async def send_daily_summary(app):
+    """Kirim ringkasan statistik 24 jam terakhir ke Telegram, dijadwalkan 1x sehari."""
+    try:
+        stats = db.get_daily_stats()
+    except Exception as e:
+        logger.error(f"Gagal ambil statistik harian: {e}")
+        return
+
+    text = format_stats_text(stats, "🗓️ Ringkasan Harian (24 jam terakhir)")
+    try:
+        await app.bot.send_message(chat_id=CHAT_ID, text=text)
+        logger.info("Ringkasan harian terkirim.")
+    except Exception as e:
+        logger.error(f"Gagal kirim ringkasan harian: {e}")
 
 
 async def on_startup(app):
     """Dipanggil setelah event loop bot aktif — aman untuk start scheduler di sini."""
     scheduler = AsyncIOScheduler()
     scheduler.add_job(check_and_alert, "interval", minutes=CHECK_INTERVAL_MINUTES, args=[app])
+    scheduler.add_job(
+        send_daily_summary,
+        CronTrigger(hour=DAILY_SUMMARY_HOUR_UTC, minute=DAILY_SUMMARY_MINUTE_UTC),
+        args=[app],
+    )
     scheduler.start()
     logger.info(f"Scheduler dimulai, cek tiap {CHECK_INTERVAL_MINUTES} menit.")
+    logger.info(f"Ringkasan harian dijadwalkan jam {DAILY_SUMMARY_HOUR_UTC:02d}:{DAILY_SUMMARY_MINUTE_UTC:02d} UTC.")
 
 
 def main():
