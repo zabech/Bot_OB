@@ -3,52 +3,65 @@ import time
 import logging
 import asyncio
 import pandas as pd
-from binance.client import Client
+from pybit.unified_trading import HTTP
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ── Konfigurasi ──────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
-BINANCE_API_KEY = os.environ.get("BINANCE_API_KEY", "")
-BINANCE_API_SECRET = os.environ.get("BINANCE_API_SECRET", "")
+BYBIT_API_KEY = os.environ.get("BYBIT_API_KEY", "")
+BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET", "")
 
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", 15))
 
 # Timeframe: HTF (higher) menentukan zona order block utama,
 # LTF (lower) dipakai untuk konfirmasi reaksi harga sebelum alert dikirim.
-HTF_LIST = os.environ.get("HTF_LIST", "1d,4h").split(",")
-LTF = os.environ.get("LTF", "1h")
+# Format Bybit: "1","3","5","15","30","60","120","240","360","720","D","W","M"
+HTF_LIST = os.environ.get("HTF_LIST", "D,240").split(",")   # default: 1D, 4H
+LTF = os.environ.get("LTF", "60")                            # default: 1H
 
 # Parameter deteksi Order Block
 LOOKBACK_CANDLES = int(os.environ.get("LOOKBACK_CANDLES", 50))
 IMPULSE_MIN_PERCENT = float(os.environ.get("IMPULSE_MIN_PERCENT", 1.5))
 MAX_ACTIVE_ZONES_PER_TF = int(os.environ.get("MAX_ACTIVE_ZONES_PER_TF", 3))
 
-# Scanner multi-pair (Binance Futures USDT-M)
-TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", 30))          # jumlah pair top-volume yang dipantau
-PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")               # hanya pair dengan quote ini
-BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))               # jumlah pair diproses per batch
-BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", 2))  # jeda antar batch
-SYMBOL_REFRESH_HOURS = int(os.environ.get("SYMBOL_REFRESH_HOURS", 6))  # seberapa sering refresh daftar top pair
+# Scanner multi-pair (Bybit Futures/Derivatives - linear USDT perpetual)
+TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", 30))
+PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))
+BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", 2))
+SYMBOL_REFRESH_HOURS = int(os.environ.get("SYMBOL_REFRESH_HOURS", 6))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-binance_client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
+bybit_client = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
 
-# Zona aktif per (symbol, timeframe): { "BTCUSDT": {"1d": [...], "4h": [...]}, ... }
+# Zona aktif per (symbol, timeframe): { "BTCUSDT": {"D": [...], "240": [...]}, ... }
 active_zones = {}
 
 # Cache daftar top pair, di-refresh berkala
 top_pairs_cache = {"symbols": [], "last_refresh": 0}
 
+# Label timeframe yang enak dibaca manusia (untuk pesan alert)
+TF_LABELS = {
+    "1": "1m", "3": "3m", "5": "5m", "15": "15m", "30": "30m",
+    "60": "1h", "120": "2h", "240": "4h", "360": "6h", "720": "12h",
+    "D": "1D", "W": "1W", "M": "1M",
+}
+
+
+def tf_label(tf: str) -> str:
+    return TF_LABELS.get(tf, tf)
+
 
 def get_top_volume_pairs(n: int, quote: str) -> list:
-    """Ambil n pair futures dengan volume 24h tertinggi, quote tertentu (misal USDT)."""
-    tickers = binance_client.futures_ticker()
+    """Ambil n pair linear perpetual (futures) dengan volume 24h tertinggi, quote tertentu."""
+    result = bybit_client.get_tickers(category="linear")
+    tickers = result.get("result", {}).get("list", [])
     filtered = [t for t in tickers if t["symbol"].endswith(quote)]
-    filtered.sort(key=lambda t: float(t["quoteVolume"]), reverse=True)
+    filtered.sort(key=lambda t: float(t.get("turnover24h", 0)), reverse=True)
     return [t["symbol"] for t in filtered[:n]]
 
 
@@ -67,10 +80,14 @@ def get_active_symbols() -> list:
 
 
 def fetch_klines_df(symbol: str, interval: str, limit: int) -> pd.DataFrame:
-    klines = binance_client.futures_klines(symbol=symbol, interval=interval, limit=limit)
-    df = pd.DataFrame(klines, columns=[
-        "open_time", "open", "high", "low", "close", "volume",
-        "close_time", "qav", "trades", "tbbav", "tbqav", "ignore"
+    result = bybit_client.get_kline(
+        category="linear", symbol=symbol, interval=interval, limit=limit
+    )
+    rows = result.get("result", {}).get("list", [])
+    # Bybit mengembalikan data terbaru lebih dulu -> balik urutannya jadi kronologis
+    rows = list(reversed(rows))
+    df = pd.DataFrame(rows, columns=[
+        "start_time", "open", "high", "low", "close", "volume", "turnover"
     ])
     for col in ["open", "high", "low", "close"]:
         df[col] = df[col].astype(float)
@@ -166,7 +183,7 @@ async def check_symbol(app, symbol: str):
                     chat_id=CHAT_ID,
                     text=(
                         f"{emoji} {symbol} memasuki Order Block {label}\n"
-                        f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
+                        f"Timeframe zona: {tf_label(htf)} | Konfirmasi: {tf_label(LTF)}\n"
                         f"Harga sekarang: {current_price}\n"
                         f"Zona: {zone['bottom']} - {zone['top']}"
                     ),
@@ -198,10 +215,10 @@ async def check_and_alert(app):
 async def start(update, context: ContextTypes.DEFAULT_TYPE):
     symbols = get_active_symbols()
     await update.message.reply_text(
-        f"Bot alert Order Block (multi-pair, Binance Futures) aktif ✅\n"
+        f"Bot alert Order Block (multi-pair, Bybit Futures) aktif ✅\n"
         f"Memantau top {len(symbols)} pair by volume ({PAIR_QUOTE})\n"
-        f"Zona dicari di: {', '.join(HTF_LIST)}\n"
-        f"Konfirmasi di: {LTF}\n"
+        f"Zona dicari di: {', '.join(tf_label(tf) for tf in HTF_LIST)}\n"
+        f"Konfirmasi di: {tf_label(LTF)}\n"
         f"Cek tiap {CHECK_INTERVAL_MINUTES} menit.\n\n"
         f"Gunakan /pairs untuk lihat daftar pair yang dipantau.\n"
         f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTCUSDT)."
@@ -234,7 +251,7 @@ async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
             htf_df = fetch_klines_df(symbol, htf, LOOKBACK_CANDLES)
             zones = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
 
-            lines.append(f"\n📊 Timeframe {htf}:")
+            lines.append(f"\n📊 Timeframe {tf_label(htf)}:")
             if not zones:
                 lines.append("  Belum ada order block terdeteksi.")
                 continue
