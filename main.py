@@ -2,13 +2,13 @@ import os
 import time
 import logging
 import asyncio
-import requests
 import pandas as pd
 from typing import Optional
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import db
+import ob_core
 
 # ── Konfigurasi ──────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -51,9 +51,6 @@ HEALTH_ALERT_COOLDOWN_MINUTES = int(os.environ.get("HEALTH_ALERT_COOLDOWN_MINUTE
 DAILY_SUMMARY_HOUR_UTC = int(os.environ.get("DAILY_SUMMARY_HOUR_UTC", 0))
 DAILY_SUMMARY_MINUTE_UTC = int(os.environ.get("DAILY_SUMMARY_MINUTE_UTC", 0))
 
-OKX_BASE_URL = "https://www.okx.com"
-REQUEST_TIMEOUT = 10
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -70,39 +67,8 @@ last_alert_time = {}
 last_health_alert_time = {"ts": 0}
 
 
-def okx_get(path: str, params: dict) -> dict:
-    """Request ke OKX API dengan retry otomatis (exponential backoff) untuk
-    menangani gangguan jaringan/rate-limit sementara."""
-    last_error = None
-    for attempt in range(API_MAX_RETRIES):
-        try:
-            resp = requests.get(f"{OKX_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("code") != "0":
-                raise RuntimeError(f"OKX API error: {data.get('msg')}")
-            return data
-        except Exception as e:
-            last_error = e
-            if attempt < API_MAX_RETRIES - 1:
-                wait = API_RETRY_BACKOFF_SECONDS * (2 ** attempt)
-                logger.warning(f"Request gagal ({e}), retry dalam {wait:.0f}s [percobaan {attempt + 1}/{API_MAX_RETRIES}]")
-                time.sleep(wait)
-    raise last_error
-
-
 def get_top_volume_pairs(n: int, quote: str) -> list:
-    """Ambil n pair USDT-margined perpetual swap dengan volume 24h tertinggi,
-    dan skip pair dengan volume di bawah MIN_VOLUME_USD (safety net agar tidak
-    memproses pair dengan likuiditas terlalu kecil)."""
-    data = okx_get("/api/v5/market/tickers", {"instType": "SWAP"})
-    tickers = data.get("data", [])
-    filtered = [
-        t for t in tickers
-        if t["instId"].endswith(f"-{quote}-SWAP") and float(t.get("volCcy24h", 0)) >= MIN_VOLUME_USD
-    ]
-    filtered.sort(key=lambda t: float(t.get("volCcy24h", 0)), reverse=True)
-    return [t["instId"] for t in filtered[:n]]
+    return ob_core.get_top_volume_pairs(n, quote, MIN_VOLUME_USD)
 
 
 def get_active_symbols() -> list:
@@ -120,142 +86,31 @@ def get_active_symbols() -> list:
 
 
 def fetch_klines_df(symbol: str, interval: str, limit: int) -> pd.DataFrame:
-    data = okx_get("/api/v5/market/candles", {"instId": symbol, "bar": interval, "limit": limit})
-    rows = data.get("data", [])
-    # OKX mengembalikan data terbaru lebih dulu -> balik urutannya jadi kronologis
-    rows = list(reversed(rows))
-    df = pd.DataFrame(rows, columns=[
-        "ts", "open", "high", "low", "close", "vol", "volCcy", "volCcyQuote", "confirm"
-    ])
-    for col in ["open", "high", "low", "close", "vol"]:
-        df[col] = df[col].astype(float)
-    return df
+    return ob_core.fetch_klines_df(symbol, interval, limit)
 
 
 def detect_order_blocks(df: pd.DataFrame, max_zones: int) -> list:
-    """
-    Deteksi order block dengan 2 filter kualitas tambahan:
-    1. Filter volume: candle OB harus punya volume >= VOLUME_MULTIPLIER x rata-rata
-       volume di sekitarnya (VOLUME_LOOKBACK candle sebelum-sesudah), menyaring OB
-       yang terbentuk dari candle dengan partisipasi pasar kecil/lemah.
-    2. Filter unmitigated: OB yang sudah pernah ditembus penuh oleh harga setelah
-       terbentuk (candle close menembus sisi berlawanan zona) dibuang karena sudah
-       tidak relevan lagi sebagai zona supply/demand aktif.
-    """
-    zones = []
-    n = len(df)
-    avg_volume = df["vol"].mean()
-
-    for i in range(n - 3):
-        candle = df.iloc[i]
-        is_bearish_candle = candle["close"] < candle["open"]
-        is_bullish_candle = candle["close"] > candle["open"]
-
-        future = df.iloc[i + 1:i + 4]
-        if future.empty:
-            continue
-
-        # Filter volume: bandingkan volume candle OB terhadap rata-rata seluruh window
-        if candle["vol"] < avg_volume * VOLUME_MULTIPLIER:
-            continue
-
-        zone_top = float(candle["high"])
-        zone_bottom = float(candle["low"])
-
-        # Semua candle setelah candle OB ini (untuk cek apakah pernah ditembus)
-        after_candle = df.iloc[i + 1:]
-
-        if is_bearish_candle:
-            move_pct = (future["high"].max() - candle["close"]) / candle["close"] * 100
-            if move_pct >= IMPULSE_MIN_PERCENT:
-                # Filter unmitigated: buang jika close pernah turun di bawah zona (ditembus penuh)
-                already_mitigated = (after_candle["close"] < zone_bottom).any()
-                if not already_mitigated:
-                    zones.append({
-                        "type": "bullish", "top": zone_top, "bottom": zone_bottom,
-                        "index": i, "mitigated": False,
-                    })
-
-        if is_bullish_candle:
-            move_pct = (candle["close"] - future["low"].min()) / candle["close"] * 100
-            if move_pct >= IMPULSE_MIN_PERCENT:
-                already_mitigated = (after_candle["close"] > zone_top).any()
-                if not already_mitigated:
-                    zones.append({
-                        "type": "bearish", "top": zone_top, "bottom": zone_bottom,
-                        "index": i, "mitigated": False,
-                    })
-
-    zones.sort(key=lambda z: z["index"], reverse=True)
-    return zones[:max_zones]
+    return ob_core.detect_order_blocks(df, max_zones, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER)
 
 
 def ltf_shows_reaction(ltf_df: pd.DataFrame, zone: dict) -> bool:
-    recent = ltf_df.tail(3)
-    for _, c in recent.iterrows():
-        price_in_zone = zone["bottom"] <= c["close"] <= zone["top"] or zone["bottom"] <= c["open"] <= zone["top"]
-        if not price_in_zone:
-            continue
-        if zone["type"] == "bullish" and c["close"] > c["open"]:
-            return True
-        if zone["type"] == "bearish" and c["close"] < c["open"]:
-            return True
-    return False
+    return ob_core.ltf_shows_reaction(ltf_df, zone)
 
 
 def merge_zone_state(old_zones: list, new_zones: list) -> list:
-    for new_zone in new_zones:
-        for old_zone in old_zones:
-            if (old_zone["type"] == new_zone["type"]
-                    and abs(old_zone["top"] - new_zone["top"]) < 1e-6
-                    and abs(old_zone["bottom"] - new_zone["bottom"]) < 1e-6):
-                new_zone["mitigated"] = old_zone["mitigated"]
-    return new_zones
+    return ob_core.merge_zone_state(old_zones, new_zones)
 
 
 def calculate_invalidation(zone: dict) -> float:
-    """Harga invalidasi: untuk bullish OB, harga break di bawah bottom zona.
-    Untuk bearish OB, harga break di atas top zona."""
-    if zone["type"] == "bullish":
-        return zone["bottom"]
-    return zone["top"]
+    return ob_core.calculate_invalidation(zone)
 
 
 def find_nearest_opposite_target(zone: dict, current_price: float, all_zones_for_symbol: dict) -> Optional[float]:
-    """Cari zona OB berlawanan terdekat (lintas semua HTF pair ini) sebagai target profit kasar.
-    Bullish OB -> cari bearish OB terdekat DI ATAS harga saat ini.
-    Bearish OB -> cari bullish OB terdekat DI BAWAH harga saat ini.
-    Return None kalau tidak ada kandidat yang valid."""
-    opposite_type = "bearish" if zone["type"] == "bullish" else "bullish"
-    candidates = []
-
-    for tf_zones in all_zones_for_symbol.values():
-        for z in tf_zones:
-            if z["type"] != opposite_type:
-                continue
-            if zone["type"] == "bullish" and z["bottom"] > current_price:
-                candidates.append(z["bottom"])  # sisi terdekat zona supply dari bawah
-            elif zone["type"] == "bearish" and z["top"] < current_price:
-                candidates.append(z["top"])  # sisi terdekat zona demand dari atas
-
-    if not candidates:
-        return None
-    if zone["type"] == "bullish":
-        return min(candidates)  # target terdekat di atas
-    return max(candidates)  # target terdekat di bawah
+    return ob_core.find_nearest_opposite_target(zone, current_price, all_zones_for_symbol)
 
 
 def calculate_risk_reward(zone: dict, current_price: float, target: Optional[float]) -> str:
-    """Hitung rasio risk:reward kasar berdasarkan jarak ke invalidasi vs jarak ke target."""
-    invalidation = calculate_invalidation(zone)
-    risk = abs(current_price - invalidation)
-    if risk == 0:
-        return "N/A"
-    if target is None:
-        return "N/A (target tidak tersedia)"
-    reward = abs(target - current_price)
-    ratio = reward / risk
-    return f"1:{ratio:.1f}"
+    return ob_core.calculate_risk_reward(zone, current_price, target)
 
 
 async def check_symbol(app, symbol: str) -> bool:
@@ -539,6 +394,10 @@ async def on_startup(app):
 def main():
     if not BOT_TOKEN or not CHAT_ID:
         raise RuntimeError("BOT_TOKEN dan CHAT_ID wajib di-set di environment variables")
+
+    # Pakai konfigurasi retry dari env var untuk semua request ob_core
+    ob_core.DEFAULT_MAX_RETRIES = API_MAX_RETRIES
+    ob_core.DEFAULT_BACKOFF_SECONDS = API_RETRY_BACKOFF_SECONDS
 
     try:
         db.init_db()
