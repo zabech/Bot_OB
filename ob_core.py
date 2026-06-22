@@ -1,15 +1,24 @@
 """
 Modul inti: semua fungsi murni untuk fetch data OKX dan deteksi order block.
-Dipakai bersama oleh main.py (bot live) dan backtest.py (simulasi historis),
-supaya logika deteksi di backtest BENAR-BENAR identik dengan yang dipakai live.
+Dipakai bersama oleh main.py (bot live) dan backtest.py (simulasi historis).
+
+Kompatibel dengan dan tanpa pandas:
+- main.py di Railway: pandas tersedia, fungsi fetch return DataFrame
+- backtest.py di Termux: pandas tidak tersedia, fungsi fetch return list of dict
 """
 import time
 import logging
 import requests
-import pandas as pd
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Coba import pandas — tidak wajib (backtest.py jalan tanpa pandas)
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
 
 OKX_BASE_URL = "https://www.okx.com"
 REQUEST_TIMEOUT = 10
@@ -42,8 +51,7 @@ def okx_get(path: str, params: dict, max_retries: Optional[int] = None, backoff_
 
 
 def get_top_volume_pairs(n: int, quote: str, min_volume_usd: float) -> list:
-    """Ambil n pair USDT-margined perpetual swap dengan volume 24h tertinggi,
-    skip pair dengan volume di bawah min_volume_usd."""
+    """Ambil n pair USDT-margined perpetual swap dengan volume 24h tertinggi."""
     data = okx_get("/api/v5/market/tickers", {"instType": "SWAP"})
     tickers = data.get("data", [])
     filtered = [
@@ -54,107 +62,151 @@ def get_top_volume_pairs(n: int, quote: str, min_volume_usd: float) -> list:
     return [t["instId"] for t in filtered[:n]]
 
 
-def fetch_klines_df(symbol: str, interval: str, limit: int) -> pd.DataFrame:
-    """Ambil kline/candle terbaru (maks 300 per request, batasan OKX)."""
+def _rows_to_records(rows: list) -> list:
+    """Konversi raw rows OKX ke list of dict."""
+    result = []
+    for r in rows:
+        result.append({
+            "ts": int(r[0]),
+            "open": float(r[1]),
+            "high": float(r[2]),
+            "low": float(r[3]),
+            "close": float(r[4]),
+            "vol": float(r[5]),
+        })
+    return result
+
+
+def fetch_klines_df(symbol: str, interval: str, limit: int):
+    """Ambil kline terbaru. Return DataFrame jika pandas tersedia, list of dict jika tidak."""
     data = okx_get("/api/v5/market/candles", {"instId": symbol, "bar": interval, "limit": limit})
-    rows = data.get("data", [])
-    rows = list(reversed(rows))  # OKX kembalikan terbaru dulu -> balik jadi kronologis
-    df = pd.DataFrame(rows, columns=[
-        "ts", "open", "high", "low", "close", "vol", "volCcy", "volCcyQuote", "confirm"
-    ])
-    for col in ["open", "high", "low", "close", "vol"]:
-        df[col] = df[col].astype(float)
-    if not df.empty:
-        df["ts"] = df["ts"].astype("int64")
-    return df
+    rows = list(reversed(data.get("data", [])))
+    records = _rows_to_records(rows)
+
+    if HAS_PANDAS:
+        df = pd.DataFrame(records)
+        return df
+    return records
 
 
-def fetch_klines_history_df(symbol: str, interval: str, after_ts: Optional[str] = None, limit: int = 300) -> pd.DataFrame:
-    """Ambil kline historis (lebih jauh ke belakang) lewat endpoint /history-candles OKX,
-    yang mendukung paging via parameter 'after' (timestamp ms, exclusive upper bound)."""
+def fetch_klines_history_df(symbol: str, interval: str, after_ts: Optional[str] = None, limit: int = 300):
+    """Ambil kline historis via /history-candles. Return DataFrame atau list of dict."""
     params = {"instId": symbol, "bar": interval, "limit": limit}
     if after_ts:
         params["after"] = after_ts
     data = okx_get("/api/v5/market/history-candles", params)
-    rows = data.get("data", [])
-    rows = list(reversed(rows))
-    df = pd.DataFrame(rows, columns=[
-        "ts", "open", "high", "low", "close", "vol", "volCcy", "volCcyQuote", "confirm"
-    ])
-    for col in ["open", "high", "low", "close", "vol"]:
-        df[col] = df[col].astype(float)
-    if not df.empty:
-        df["ts"] = df["ts"].astype("int64")
-    return df
+    rows = list(reversed(data.get("data", [])))
+    records = _rows_to_records(rows)
+
+    if HAS_PANDAS:
+        df = pd.DataFrame(records)
+        return df
+    return records
 
 
-def fetch_full_history(symbol: str, interval: str, start_ts_ms: int, end_ts_ms: int) -> pd.DataFrame:
-    """Ambil seluruh data historis dari start_ts_ms sampai end_ts_ms (ms epoch),
-    dengan paging otomatis karena OKX membatasi maksimal 300 candle per request."""
-    all_rows = []
+def fetch_full_history(symbol: str, interval: str, start_ts_ms: int, end_ts_ms: int):
+    """Ambil seluruh data historis dengan paging otomatis. Return DataFrame atau list of dict."""
+    all_records = []
     cursor_after = str(end_ts_ms)
 
     while True:
-        df_page = fetch_klines_history_df(symbol, interval, after_ts=cursor_after, limit=300)
-        if df_page.empty:
-            break
-        all_rows.append(df_page)
-        oldest_ts = int(df_page.iloc[0]["ts"])
+        page = fetch_klines_history_df(symbol, interval, after_ts=cursor_after, limit=300)
+        # Normalkan ke list of dict untuk paging logic
+        if HAS_PANDAS and hasattr(page, 'empty'):
+            if page.empty:
+                break
+            page_list = page.to_dict("records")
+        else:
+            if not page:
+                break
+            page_list = page
+
+        all_records = page_list + all_records
+        oldest_ts = page_list[0]["ts"]
         if oldest_ts <= start_ts_ms:
             break
         cursor_after = str(oldest_ts)
-        time.sleep(0.2)  # jaga-jaga rate limit saat paging banyak halaman
+        time.sleep(0.2)
 
-    if not all_rows:
-        return pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"])
+    if not all_records:
+        if HAS_PANDAS:
+            return pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"])
+        return []
 
-    full_df = pd.concat(all_rows, ignore_index=True)
-    full_df = full_df.drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
-    full_df = full_df[full_df["ts"] >= start_ts_ms].reset_index(drop=True)
-    return full_df
+    # Deduplikasi dan filter
+    seen = set()
+    result = []
+    for row in sorted(all_records, key=lambda x: x["ts"]):
+        if row["ts"] in seen or row["ts"] < start_ts_ms:
+            continue
+        seen.add(row["ts"])
+        result.append(row)
+
+    if HAS_PANDAS:
+        return pd.DataFrame(result)
+    return result
 
 
-def detect_order_blocks(df: pd.DataFrame, max_zones: int, impulse_min_percent: float, volume_multiplier: float) -> list:
+def _get_val(row, key):
+    """Ambil nilai dari row (dict atau pandas Series)."""
+    if isinstance(row, dict):
+        return row[key]
+    return row[key]  # pandas Series juga support [key]
+
+
+def detect_order_blocks(data, max_zones: int, impulse_min_percent: float, volume_multiplier: float) -> list:
     """
-    Deteksi order block dengan 2 filter kualitas:
-    1. Filter volume: candle OB harus punya volume >= volume_multiplier x rata-rata volume window.
-    2. Filter unmitigated: OB yang sudah pernah ditembus penuh oleh harga setelah terbentuk dibuang.
+    Deteksi order block. Menerima DataFrame (pandas) atau list of dict.
+    Filter kualitas:
+    1. Volume: candle OB >= volume_multiplier x rata-rata
+    2. Unmitigated: buang OB yang sudah ditembus harga setelah terbentuk
     """
+    # Normalisasi ke list of dict
+    if HAS_PANDAS and hasattr(data, 'iterrows'):
+        candles = data.to_dict("records")
+    else:
+        candles = data
+
     zones = []
-    n = len(df)
-    avg_volume = df["vol"].mean()
+    n = len(candles)
+    if n == 0:
+        return []
+
+    avg_vol = sum(c["vol"] for c in candles) / n
 
     for i in range(n - 3):
-        candle = df.iloc[i]
-        is_bearish_candle = candle["close"] < candle["open"]
-        is_bullish_candle = candle["close"] > candle["open"]
+        c = candles[i]
+        is_bearish = c["close"] < c["open"]
+        is_bullish = c["close"] > c["open"]
 
-        future = df.iloc[i + 1:i + 4]
-        if future.empty:
+        future = candles[i + 1:i + 4]
+        if not future:
             continue
 
-        if candle["vol"] < avg_volume * volume_multiplier:
+        if c["vol"] < avg_vol * volume_multiplier:
             continue
 
-        zone_top = float(candle["high"])
-        zone_bottom = float(candle["low"])
-        after_candle = df.iloc[i + 1:]
+        zone_top = c["high"]
+        zone_bottom = c["low"]
+        after = candles[i + 1:]
 
-        if is_bearish_candle:
-            move_pct = (future["high"].max() - candle["close"]) / candle["close"] * 100
+        if is_bearish:
+            max_high_future = max(f["high"] for f in future)
+            move_pct = (max_high_future - c["close"]) / c["close"] * 100
             if move_pct >= impulse_min_percent:
-                already_mitigated = (after_candle["close"] < zone_bottom).any()
-                if not already_mitigated:
+                mitigated = any(a["close"] < zone_bottom for a in after)
+                if not mitigated:
                     zones.append({
                         "type": "bullish", "top": zone_top, "bottom": zone_bottom,
                         "index": i, "mitigated": False,
                     })
 
-        if is_bullish_candle:
-            move_pct = (candle["close"] - future["low"].min()) / candle["close"] * 100
+        if is_bullish:
+            min_low_future = min(f["low"] for f in future)
+            move_pct = (c["close"] - min_low_future) / c["close"] * 100
             if move_pct >= impulse_min_percent:
-                already_mitigated = (after_candle["close"] > zone_top).any()
-                if not already_mitigated:
+                mitigated = any(a["close"] > zone_top for a in after)
+                if not mitigated:
                     zones.append({
                         "type": "bearish", "top": zone_top, "bottom": zone_bottom,
                         "index": i, "mitigated": False,
@@ -164,11 +216,17 @@ def detect_order_blocks(df: pd.DataFrame, max_zones: int, impulse_min_percent: f
     return zones[:max_zones]
 
 
-def ltf_shows_reaction(ltf_df: pd.DataFrame, zone: dict) -> bool:
-    recent = ltf_df.tail(3)
-    for _, c in recent.iterrows():
-        price_in_zone = zone["bottom"] <= c["close"] <= zone["top"] or zone["bottom"] <= c["open"] <= zone["top"]
-        if not price_in_zone:
+def ltf_shows_reaction(ltf_data, zone: dict) -> bool:
+    """Cek reaksi LTF. Menerima DataFrame atau list of dict."""
+    if HAS_PANDAS and hasattr(ltf_data, 'tail'):
+        recent = ltf_data.tail(3).to_dict("records")
+    else:
+        recent = ltf_data[-3:]
+
+    for c in recent:
+        in_zone = (zone["bottom"] <= c["close"] <= zone["top"] or
+                   zone["bottom"] <= c["open"] <= zone["top"])
+        if not in_zone:
             continue
         if zone["type"] == "bullish" and c["close"] > c["open"]:
             return True
