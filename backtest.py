@@ -1,44 +1,25 @@
 """
-Script backtest sederhana untuk strategi Order Block bot ini.
+Script backtest tanpa dependency pandas — kompatibel dengan Termux di Android.
+Semua operasi data pakai Python murni (list/dict).
 
-Cara pakai:
+Cara pakai di Termux:
+    pip install requests
     python backtest.py
+    python backtest.py --symbol BTC-USDT-SWAP --months 1
     python backtest.py --months 3 --pairs 30
-    python backtest.py --symbol BTC-USDT-SWAP   # backtest 1 pair saja
-
-Logika:
-    1. Ambil data historis N bulan ke belakang untuk tiap pair, di semua HTF + LTF.
-    2. "Putar ulang" candle demi candle secara kronologis (rolling window, sama persis
-       seperti cara bot live melihat data tiap kali scan).
-    3. Tiap kali ada candle HTF yang membentuk order block valid dan harga LTF
-       menunjukkan reaksi di dalamnya, itu dicatat sebagai 1 "sinyal".
-    4. Sinyal dilacak ke depan: apakah harga mencapai target dulu (WIN) atau
-       invalidasi dulu (LOSS), pakai logika identik dengan db.py / check_open_alerts.
-    5. Hasil akhir: ringkasan win rate, breakdown per pair, dan per timeframe.
-
-PENTING: script ini memakai fungsi deteksi yang SAMA PERSIS dengan bot live
-(diimpor dari ob_core.py), supaya hasil backtest benar-benar merepresentasikan
-strategi yang sedang berjalan, bukan implementasi terpisah yang bisa berbeda.
-
-Catatan keterbatasan:
-    - OKX endpoint /history-candles punya batas seberapa jauh data bisa diambil
-      tergantung timeframe; untuk 1D/4H biasanya tersedia jauh ke belakang.
-    - Backtest ini TIDAK memperhitungkan slippage, fee, atau eksekusi order nyata.
-    - Hasil masa lalu tidak menjamin hasil masa depan.
 """
 import argparse
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-
-import pandas as pd
+from collections import defaultdict
 
 import ob_core
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# ── Parameter default, sama dengan default main.py ──────────────────────────
+# ── Parameter default ────────────────────────────────────────
 HTF_LIST_DEFAULT = ["1D", "4H"]
 LTF_DEFAULT = "1H"
 LOOKBACK_CANDLES = 50
@@ -47,7 +28,7 @@ VOLUME_MULTIPLIER = 1.2
 MAX_ACTIVE_ZONES_PER_TF = 3
 PAIR_QUOTE = "USDT"
 MIN_VOLUME_USD = 5_000_000
-MAX_LOOKFORWARD_CANDLES = 200  # batas candle LTF maksimal dilacak ke depan sebelum dianggap "tidak resolved"
+MAX_LOOKFORWARD_CANDLES = 200
 
 
 def get_backtest_pairs(n: int) -> list:
@@ -55,119 +36,260 @@ def get_backtest_pairs(n: int) -> list:
     return ob_core.get_top_volume_pairs(n, PAIR_QUOTE, MIN_VOLUME_USD)
 
 
+# ── Versi "no pandas" dari fungsi fetch ──────────────────────
+
+def fetch_candles_raw(symbol: str, interval: str, limit: int) -> list:
+    """Ambil kline terbaru, return list of dict."""
+    data = ob_core.okx_get(
+        "/api/v5/market/candles",
+        {"instId": symbol, "bar": interval, "limit": limit}
+    )
+    rows = data.get("data", [])
+    rows = list(reversed(rows))  # kronologis
+    result = []
+    for r in rows:
+        result.append({
+            "ts": int(r[0]),
+            "open": float(r[1]),
+            "high": float(r[2]),
+            "low": float(r[3]),
+            "close": float(r[4]),
+            "vol": float(r[5]),
+        })
+    return result
+
+
+def fetch_history_raw(symbol: str, interval: str, after_ts: str = None, limit: int = 300) -> list:
+    """Ambil kline historis via /history-candles, return list of dict."""
+    params = {"instId": symbol, "bar": interval, "limit": limit}
+    if after_ts:
+        params["after"] = after_ts
+    data = ob_core.okx_get("/api/v5/market/history-candles", params)
+    rows = data.get("data", [])
+    rows = list(reversed(rows))
+    result = []
+    for r in rows:
+        result.append({
+            "ts": int(r[0]),
+            "open": float(r[1]),
+            "high": float(r[2]),
+            "low": float(r[3]),
+            "close": float(r[4]),
+            "vol": float(r[5]),
+        })
+    return result
+
+
+def fetch_full_history_raw(symbol: str, interval: str, start_ts_ms: int, end_ts_ms: int) -> list:
+    """Ambil seluruh data historis dengan paging otomatis, return list of dict."""
+    all_rows = []
+    cursor_after = str(end_ts_ms)
+
+    while True:
+        page = fetch_history_raw(symbol, interval, after_ts=cursor_after, limit=300)
+        if not page:
+            break
+        all_rows = page + all_rows  # prepend (page lebih lama di depan)
+        oldest_ts = page[0]["ts"]
+        if oldest_ts <= start_ts_ms:
+            break
+        cursor_after = str(oldest_ts)
+        time.sleep(0.2)
+
+    # Deduplikasi dan filter by start_ts
+    seen = set()
+    result = []
+    for row in sorted(all_rows, key=lambda x: x["ts"]):
+        if row["ts"] in seen:
+            continue
+        if row["ts"] >= start_ts_ms:
+            seen.add(row["ts"])
+            result.append(row)
+    return result
+
+
+# ── Deteksi OB tanpa pandas ───────────────────────────────────
+
+def detect_order_blocks_raw(candles: list, max_zones: int) -> list:
+    """Deteksi order block dari list of dict, tanpa pandas."""
+    zones = []
+    n = len(candles)
+    if n == 0:
+        return []
+
+    avg_vol = sum(c["vol"] for c in candles) / n
+
+    for i in range(n - 3):
+        c = candles[i]
+        is_bearish = c["close"] < c["open"]
+        is_bullish = c["close"] > c["open"]
+
+        future = candles[i + 1:i + 4]
+        if not future:
+            continue
+
+        if c["vol"] < avg_vol * VOLUME_MULTIPLIER:
+            continue
+
+        zone_top = c["high"]
+        zone_bottom = c["low"]
+        after = candles[i + 1:]
+
+        if is_bearish:
+            max_high_future = max(f["high"] for f in future)
+            move_pct = (max_high_future - c["close"]) / c["close"] * 100
+            if move_pct >= IMPULSE_MIN_PERCENT:
+                mitigated = any(a["close"] < zone_bottom for a in after)
+                if not mitigated:
+                    zones.append({
+                        "type": "bullish", "top": zone_top, "bottom": zone_bottom,
+                        "index": i, "mitigated": False,
+                    })
+
+        if is_bullish:
+            min_low_future = min(f["low"] for f in future)
+            move_pct = (c["close"] - min_low_future) / c["close"] * 100
+            if move_pct >= IMPULSE_MIN_PERCENT:
+                mitigated = any(a["close"] > zone_top for a in after)
+                if not mitigated:
+                    zones.append({
+                        "type": "bearish", "top": zone_top, "bottom": zone_bottom,
+                        "index": i, "mitigated": False,
+                    })
+
+    zones.sort(key=lambda z: z["index"], reverse=True)
+    return zones[:max_zones]
+
+
+def ltf_shows_reaction_raw(ltf_candles: list, zone: dict) -> bool:
+    """Cek reaksi LTF dari list of dict, tanpa pandas."""
+    recent = ltf_candles[-3:]
+    for c in recent:
+        in_zone = (zone["bottom"] <= c["close"] <= zone["top"] or
+                   zone["bottom"] <= c["open"] <= zone["top"])
+        if not in_zone:
+            continue
+        if zone["type"] == "bullish" and c["close"] > c["open"]:
+            return True
+        if zone["type"] == "bearish" and c["close"] < c["open"]:
+            return True
+    return False
+
+
+def resolve_trade(ltf_candles: list, signal_ts: int, zone_type: str,
+                  invalidation: float, target: float) -> str:
+    """Lacak hasil trade ke depan setelah signal_ts."""
+    future = [c for c in ltf_candles if c["ts"] > signal_ts][:MAX_LOOKFORWARD_CANDLES]
+    if not future:
+        return "unresolved"
+
+    for c in future:
+        if zone_type == "bullish":
+            if c["high"] >= target:
+                return "win"
+            if c["low"] <= invalidation:
+                return "loss"
+        else:
+            if c["low"] <= target:
+                return "win"
+            if c["high"] >= invalidation:
+                return "loss"
+
+    return "unresolved"
+
+
+# ── Simulasi per pair ─────────────────────────────────────────
+
 def simulate_pair(symbol: str, htf_list: list, ltf: str, months: int) -> list:
-    """Jalankan backtest untuk 1 pair, return list of trade results (dict)."""
     end_ts_ms = int(time.time() * 1000)
     start_ts_ms = int((datetime.now(timezone.utc) - timedelta(days=months * 30)).timestamp() * 1000)
 
-    # Ambil seluruh histori LTF sekali (dipakai untuk konfirmasi & lacak hasil ke depan)
     logger.info(f"[{symbol}] Mengambil histori LTF ({ltf})...")
-    ltf_df = ob_core.fetch_full_history(symbol, ltf, start_ts_ms, end_ts_ms)
-    if ltf_df.empty or len(ltf_df) < LOOKBACK_CANDLES:
-        logger.warning(f"[{symbol}] Data LTF tidak cukup, skip.")
+    try:
+        ltf_candles = fetch_full_history_raw(symbol, ltf, start_ts_ms, end_ts_ms)
+    except Exception as e:
+        logger.error(f"[{symbol}] Gagal ambil LTF: {e}")
+        return []
+
+    if len(ltf_candles) < LOOKBACK_CANDLES:
+        logger.warning(f"[{symbol}] Data LTF tidak cukup ({len(ltf_candles)} candle), skip.")
         return []
 
     results = []
 
     for htf in htf_list:
         logger.info(f"[{symbol}] Mengambil histori HTF ({htf})...")
-        htf_df = ob_core.fetch_full_history(symbol, htf, start_ts_ms, end_ts_ms)
-        if htf_df.empty or len(htf_df) < LOOKBACK_CANDLES + 10:
+        try:
+            htf_candles = fetch_full_history_raw(symbol, htf, start_ts_ms, end_ts_ms)
+        except Exception as e:
+            logger.error(f"[{symbol}] Gagal ambil HTF {htf}: {e}")
+            continue
+
+        if len(htf_candles) < LOOKBACK_CANDLES + 10:
             logger.warning(f"[{symbol}] Data HTF {htf} tidak cukup, skip timeframe ini.")
             continue
 
-        seen_zones = set()  # (type, top, bottom) yang sudah pernah disinyalkan, hindari duplikat
+        seen_zones = set()
 
-        # Rolling window: mulai dari titik dimana ada cukup history (LOOKBACK_CANDLES)
-        for end_idx in range(LOOKBACK_CANDLES, len(htf_df)):
-            window = htf_df.iloc[end_idx - LOOKBACK_CANDLES:end_idx].reset_index(drop=True)
-            zones = ob_core.detect_order_blocks(window, MAX_ACTIVE_ZONES_PER_TF, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER)
+        for end_idx in range(LOOKBACK_CANDLES, len(htf_candles)):
+            window = htf_candles[end_idx - LOOKBACK_CANDLES:end_idx]
+            zones = detect_order_blocks_raw(window, MAX_ACTIVE_ZONES_PER_TF)
             if not zones:
                 continue
 
-            current_htf_ts = int(htf_df.iloc[end_idx]["ts"])
-            current_price = float(htf_df.iloc[end_idx]["close"])
+            current_htf_ts = htf_candles[end_idx]["ts"]
+            current_price = htf_candles[end_idx]["close"]
 
             for zone in zones:
                 zone_key = (zone["type"], round(zone["top"], 8), round(zone["bottom"], 8))
                 if zone_key in seen_zones:
-                    continue  # sudah pernah dicatat sebagai sinyal sebelumnya
-
-                price_in_zone = zone["bottom"] <= current_price <= zone["top"]
-                if not price_in_zone:
                     continue
 
-                # Ambil potongan LTF yang sezaman dengan candle HTF ini untuk cek reaksi
-                ltf_slice = ltf_df[ltf_df["ts"] <= current_htf_ts].tail(3)
+                if not (zone["bottom"] <= current_price <= zone["top"]):
+                    continue
+
+                ltf_slice = [c for c in ltf_candles if c["ts"] <= current_htf_ts][-3:]
                 if len(ltf_slice) < 3:
                     continue
-                if not ob_core.ltf_shows_reaction(ltf_slice, zone):
+                if not ltf_shows_reaction_raw(ltf_slice, zone):
                     continue
 
-                # Sinyal valid -> catat, lalu lacak hasilnya ke depan di data LTF
                 seen_zones.add(zone_key)
-                invalidation = ob_core.calculate_invalidation(zone)
 
-                # Target: pakai jarak tetap 1.5x risk sebagai proxy sederhana untuk backtest
-                # (di live, target pakai zona OB berlawanan; untuk backtest per-timeframe
-                # terisolasi ini, dipakai pendekatan R:R tetap agar tetap bisa diukur)
-                risk = abs(current_price - invalidation)
+                risk = abs(current_price - (zone["bottom"] if zone["type"] == "bullish" else zone["top"]))
                 if risk == 0:
                     continue
+
                 if zone["type"] == "bullish":
                     target = current_price + risk * 1.5
+                    invalidation = zone["bottom"]
                 else:
                     target = current_price - risk * 1.5
+                    invalidation = zone["top"]
 
-                outcome = resolve_trade(ltf_df, current_htf_ts, zone["type"], invalidation, target)
+                outcome = resolve_trade(ltf_candles, current_htf_ts, zone["type"], invalidation, target)
                 results.append({
                     "symbol": symbol,
                     "htf": htf,
                     "zone_type": zone["type"],
                     "entry_price": current_price,
-                    "invalidation": invalidation,
-                    "target": target,
                     "outcome": outcome,
                 })
 
     return results
 
 
-def resolve_trade(ltf_df: pd.DataFrame, signal_ts: int, zone_type: str, invalidation: float, target: float) -> str:
-    """Lacak ke depan di data LTF setelah signal_ts: apakah harga hit target dulu
-    atau invalidasi dulu. Return 'win', 'loss', atau 'unresolved'."""
-    future = ltf_df[ltf_df["ts"] > signal_ts].head(MAX_LOOKFORWARD_CANDLES)
-    if future.empty:
-        return "unresolved"
-
-    for _, c in future.iterrows():
-        price_high = float(c["high"])
-        price_low = float(c["low"])
-
-        if zone_type == "bullish":
-            if price_high >= target:
-                return "win"
-            if price_low <= invalidation:
-                return "loss"
-        else:
-            if price_low <= target:
-                return "win"
-            if price_high >= invalidation:
-                return "loss"
-
-    return "unresolved"
-
+# ── Rekap hasil ───────────────────────────────────────────────
 
 def print_summary(all_results: list):
     if not all_results:
         print("\nTidak ada sinyal yang terbentuk selama periode backtest.")
         return
 
-    df = pd.DataFrame(all_results)
-    total = len(df)
-    win = (df["outcome"] == "win").sum()
-    loss = (df["outcome"] == "loss").sum()
-    unresolved = (df["outcome"] == "unresolved").sum()
+    total = len(all_results)
+    win = sum(1 for r in all_results if r["outcome"] == "win")
+    loss = sum(1 for r in all_results if r["outcome"] == "loss")
+    unresolved = sum(1 for r in all_results if r["outcome"] == "unresolved")
     resolved = win + loss
     win_rate = (win / resolved * 100) if resolved > 0 else 0
 
@@ -177,41 +299,46 @@ def print_summary(all_results: list):
     print(f"Total sinyal     : {total}")
     print(f"Win              : {win}")
     print(f"Loss             : {loss}")
-    print(f"Unresolved       : {unresolved} (belum hit target/invalidasi sampai akhir data)")
-    print(f"Win rate         : {win_rate:.1f}% (dari {resolved} sinyal yang resolved)")
+    print(f"Unresolved       : {unresolved}")
+    print(f"Win rate         : {win_rate:.1f}% (dari {resolved} sinyal resolved)")
 
+    # Breakdown per timeframe
     print("\n--- Breakdown per Timeframe ---")
-    for htf, group in df.groupby("htf"):
-        g_resolved = group[group["outcome"] != "unresolved"]
-        g_win = (g_resolved["outcome"] == "win").sum()
-        g_total_resolved = len(g_resolved)
-        g_wr = (g_win / g_total_resolved * 100) if g_total_resolved > 0 else 0
-        print(f"  {htf}: {len(group)} sinyal, win rate {g_wr:.1f}% ({g_win}/{g_total_resolved} resolved)")
+    by_htf = defaultdict(list)
+    for r in all_results:
+        by_htf[r["htf"]].append(r)
+    for htf, group in sorted(by_htf.items()):
+        resolved_g = [r for r in group if r["outcome"] != "unresolved"]
+        wins_g = sum(1 for r in resolved_g if r["outcome"] == "win")
+        wr_g = (wins_g / len(resolved_g) * 100) if resolved_g else 0
+        print(f"  {htf}: {len(group)} sinyal, win rate {wr_g:.1f}% ({wins_g}/{len(resolved_g)} resolved)")
 
-    print("\n--- Breakdown per Pair (top 10 by jumlah sinyal) ---")
-    pair_counts = df.groupby("symbol").size().sort_values(ascending=False).head(10)
-    for symbol, count in pair_counts.items():
-        sub = df[df["symbol"] == symbol]
-        sub_resolved = sub[sub["outcome"] != "unresolved"]
-        sub_win = (sub_resolved["outcome"] == "win").sum()
-        sub_total_resolved = len(sub_resolved)
-        sub_wr = (sub_win / sub_total_resolved * 100) if sub_total_resolved > 0 else 0
-        print(f"  {symbol}: {count} sinyal, win rate {sub_wr:.1f}%")
+    # Breakdown per pair (top 10)
+    print("\n--- Pair Paling Sering Alert (top 10) ---")
+    by_symbol = defaultdict(list)
+    for r in all_results:
+        by_symbol[r["symbol"]].append(r)
+    top_symbols = sorted(by_symbol.items(), key=lambda x: len(x[1]), reverse=True)[:10]
+    for symbol, group in top_symbols:
+        resolved_g = [r for r in group if r["outcome"] != "unresolved"]
+        wins_g = sum(1 for r in resolved_g if r["outcome"] == "win")
+        wr_g = (wins_g / len(resolved_g) * 100) if resolved_g else 0
+        print(f"  {symbol}: {len(group)} sinyal, win rate {wr_g:.1f}%")
 
-    print("\nCatatan: target pada backtest memakai R:R tetap 1.5x risk (bukan zona OB")
-    print("berlawanan seperti versi live), karena perhitungan lintas-zona butuh konteks")
-    print("seluruh pasangan timeframe yang sulit direplikasi persis secara historis.")
-    print("Hasil ini adalah estimasi kasar performa pola deteksi, bukan simulasi 1:1 bot live.")
+    print("\nCatatan: target pakai R:R tetap 1.5x risk (estimasi kasar).")
+    print("Hasil ini bukan simulasi 1:1 bot live.")
     print("=" * 50)
 
 
+# ── Main ──────────────────────────────────────────────────────
+
 def main():
-    parser = argparse.ArgumentParser(description="Backtest strategi Order Block")
-    parser.add_argument("--months", type=int, default=3, help="Jumlah bulan data historis (default: 3)")
-    parser.add_argument("--pairs", type=int, default=30, help="Jumlah pair top-volume untuk dites (default: 30)")
-    parser.add_argument("--symbol", type=str, default=None, help="Backtest 1 pair spesifik saja, contoh: BTC-USDT-SWAP")
-    parser.add_argument("--htf", type=str, default=",".join(HTF_LIST_DEFAULT), help="Daftar HTF dipisah koma (default: 1D,4H)")
-    parser.add_argument("--ltf", type=str, default=LTF_DEFAULT, help="LTF untuk konfirmasi (default: 1H)")
+    parser = argparse.ArgumentParser(description="Backtest strategi Order Block (no pandas)")
+    parser.add_argument("--months", type=int, default=3, help="Jumlah bulan historis (default: 3)")
+    parser.add_argument("--pairs", type=int, default=30, help="Jumlah top pair (default: 30)")
+    parser.add_argument("--symbol", type=str, default=None, help="1 pair spesifik, contoh: BTC-USDT-SWAP")
+    parser.add_argument("--htf", type=str, default=",".join(HTF_LIST_DEFAULT), help="HTF dipisah koma (default: 1D,4H)")
+    parser.add_argument("--ltf", type=str, default=LTF_DEFAULT, help="LTF konfirmasi (default: 1H)")
     args = parser.parse_args()
 
     htf_list = args.htf.split(",")
@@ -231,7 +358,8 @@ def main():
             all_results.extend(results)
             logger.info(f"[{symbol}] {len(results)} sinyal ditemukan.")
         except Exception as e:
-            logger.error(f"[{symbol}] Gagal backtest: {e}")
+            logger.error(f"[{symbol}] Gagal: {e}")
+        time.sleep(0.5)  # jeda kecil antar pair agar tidak kena rate limit
 
     print_summary(all_results)
 
