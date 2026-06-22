@@ -8,6 +8,15 @@ zona dengan konfirmasi reaksi di timeframe lebih kecil.
 > Serikat (termasuk sebagian besar server Railway). OKX terbukti lebih permisif soal lokasi
 > untuk endpoint publik (data harga/candle).
 
+## Struktur File
+
+| File | Fungsi |
+|---|---|
+| `main.py` | Bot Telegram live — scan berkala, kirim alert, command handler |
+| `ob_core.py` | Logika inti: fetch data OKX & deteksi order block. Dipakai bersama oleh `main.py` dan `backtest.py` agar logikanya identik |
+| `db.py` | Koneksi PostgreSQL: simpan & query histori alert |
+| `backtest.py` | Script terpisah untuk simulasi historis (lihat bagian **Backtest** di bawah) |
+
 ## Cara Kerja
 
 1. **Pemilihan pair** — bot otomatis ambil **top N pair by volume 24 jam** dari OKX Swap market
@@ -106,6 +115,49 @@ Kalau mau jam lain, hitung dulu selisihnya — misal ingin 07:00 WITA, set `DAIL
 - Memantau banyak pair sekaligus berarti makin banyak alert — sesuaikan `TOP_N_PAIRS` dan parameter
   deteksi agar tidak membanjiri chat kamu.
 - Jangan jadikan satu-satunya basis keputusan trading.
+
+## Backtest
+
+`backtest.py` adalah script terpisah (dijalankan manual, bukan dari Telegram) untuk menguji
+performa historis strategi order block sebelum dipercaya secara live. Script ini memakai
+fungsi deteksi yang **sama persis** dengan bot live (sama-sama import dari `ob_core.py`),
+jadi hasilnya merepresentasikan strategi yang benar-benar berjalan.
+
+### Cara pakai
+
+```bash
+pip install -r requirements.txt
+
+# Backtest top 30 pair, 3 bulan terakhir (default)
+python backtest.py
+
+# Custom: 1 bulan, top 10 pair
+python backtest.py --months 1 --pairs 10
+
+# Backtest 1 pair spesifik saja
+python backtest.py --symbol BTC-USDT-SWAP
+
+# Custom timeframe
+python backtest.py --htf 1D,4H --ltf 1H
+```
+
+### Cara kerja
+
+1. Ambil data historis N bulan ke belakang (lewat endpoint `/history-candles` OKX, dengan paging otomatis)
+2. "Putar ulang" candle demi candle secara kronologis — rolling window persis seperti bot live
+3. Tiap kali order block valid + ada konfirmasi reaksi LTF, dicatat sebagai 1 sinyal
+4. Sinyal dilacak ke depan: hit target dulu (win) atau invalidasi dulu (loss)
+5. Hasil akhir: ringkasan win rate, breakdown per timeframe dan per pair
+
+### Keterbatasan penting
+
+- **Target di backtest beda dari live**: live pakai zona OB berlawanan sebagai target,
+  sedangkan backtest pakai R:R tetap 1.5x risk sebagai proxy (karena perhitungan
+  lintas-zona historis sulit direplikasi persis). Hasilnya jadi estimasi kasar, bukan simulasi 1:1.
+- Tidak memperhitungkan slippage, fee, atau eksekusi order nyata
+- Hasil masa lalu tidak menjamin hasil masa depan — gunakan sebagai salah satu input,
+  bukan satu-satunya dasar keputusan
+- Endpoint historis OKX punya batas seberapa jauh data tersedia tergantung timeframe
 
 ## Setup Database (PostgreSQL di Railway)
 
