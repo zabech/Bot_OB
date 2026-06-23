@@ -616,7 +616,7 @@ def main_keyboard() -> ReplyKeyboardMarkup:
             ["🔬 Backtest",   "⚙️ Pengaturan"],
         ],
         resize_keyboard=True,
-        persistent=True,
+        is_persistent=True,
     )
 
 
