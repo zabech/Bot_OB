@@ -4,11 +4,21 @@ import logging
 import asyncio
 import pandas as pd
 from typing import Optional
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from collections import defaultdict
+from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
+    ConversationHandler, MessageHandler, filters, ContextTypes
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import db
 import ob_core
+
+# State untuk ConversationHandler
+WAITING_SYMBOL_ZONES = 1
+WAITING_SYMBOL_BACKTEST = 2
+WAITING_MONTHS_BACKTEST = 3
 
 # ── Konfigurasi ──────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -354,17 +364,11 @@ async def check_and_alert(app):
 async def start(update, context: ContextTypes.DEFAULT_TYPE):
     symbols = get_active_symbols()
     await update.message.reply_text(
-        f"Bot alert Order Block (multi-pair, OKX Futures) aktif ✅\n"
-        f"Memantau top {len(symbols)} pair by volume ({PAIR_QUOTE}, min ${MIN_VOLUME_USD:,.0f})\n"
-        f"Zona dicari di: {', '.join(HTF_LIST)}\n"
-        f"Konfirmasi di: {LTF}\n"
-        f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit per pair\n"
-        f"Cek tiap {CHECK_INTERVAL_MINUTES} menit.\n"
-        f"Ringkasan harian: jam {DAILY_SUMMARY_HOUR_UTC:02d}:{DAILY_SUMMARY_MINUTE_UTC:02d} UTC.\n\n"
-        f"Gunakan /pairs untuk lihat daftar pair yang dipantau.\n"
-        f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTC-USDT-SWAP).\n"
-        f"Gunakan /stats untuk lihat ringkasan performa alert.\n"
-        f"Gunakan /backtest SYMBOL BULAN untuk backtest historis (misal /backtest BTC-USDT-SWAP 3)."
+        f"🤖 Bot OB aktif ✅\n\n"
+        f"Memantau {len(symbols)} pair | {', '.join(HTF_LIST)} | Konfirmasi {LTF}\n"
+        f"Cek tiap {CHECK_INTERVAL_MINUTES} menit\n\n"
+        f"Pilih menu di bawah:",
+        reply_markup=main_keyboard()
     )
 
 
@@ -602,6 +606,348 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Gagal menjalankan backtest: {e}")
 
 
+# ── Keyboard builders ────────────────────────────────────────
+
+def main_keyboard() -> ReplyKeyboardMarkup:
+    """Reply keyboard utama yang selalu tampil di bawah chat."""
+    return ReplyKeyboardMarkup(
+        [
+            ["📊 Monitoring", "📈 Analisis"],
+            ["🔬 Backtest",   "⚙️ Pengaturan"],
+        ],
+        resize_keyboard=True,
+        persistent=True,
+    )
+
+
+def monitoring_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🤖 Status Bot",       callback_data="mon_status")],
+        [InlineKeyboardButton("📋 Daftar Pair",       callback_data="mon_pairs")],
+        [InlineKeyboardButton("📈 Statistik Alert",   callback_data="mon_stats")],
+        [InlineKeyboardButton("🗓️ Ringkasan Harian",  callback_data="mon_daily")],
+    ])
+
+
+def analisis_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 Cek Zona OB",       callback_data="ana_zones")],
+        [InlineKeyboardButton("💰 Harga Sekarang",    callback_data="ana_price")],
+    ])
+
+
+def backtest_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("₿ Backtest BTC 1 bln",  callback_data="bt_btc_1")],
+        [InlineKeyboardButton("Ξ Backtest ETH 1 bln",  callback_data="bt_eth_1")],
+        [InlineKeyboardButton("⚡ Backtest SOL 1 bln",  callback_data="bt_sol_1")],
+        [InlineKeyboardButton("✏️ Backtest Custom...",   callback_data="bt_custom")],
+    ])
+
+
+def pengaturan_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚙️ Info Konfigurasi",   callback_data="set_config")],
+        [InlineKeyboardButton("❓ Bantuan",             callback_data="set_help")],
+    ])
+
+
+# ── Handler tombol Reply Keyboard ─────────────────────────────
+
+async def menu_router(update, context: ContextTypes.DEFAULT_TYPE):
+    """Route pesan teks dari Reply Keyboard ke sub-menu inline."""
+    text = update.message.text
+    if text == "📊 Monitoring":
+        await update.message.reply_text("Pilih menu Monitoring:", reply_markup=monitoring_keyboard())
+    elif text == "📈 Analisis":
+        await update.message.reply_text("Pilih menu Analisis:", reply_markup=analisis_keyboard())
+    elif text == "🔬 Backtest":
+        await update.message.reply_text("Pilih menu Backtest:", reply_markup=backtest_keyboard())
+    elif text == "⚙️ Pengaturan":
+        await update.message.reply_text("Pilih menu Pengaturan:", reply_markup=pengaturan_keyboard())
+
+
+# ── Handler tombol Inline Keyboard (callback) ─────────────────
+
+async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle semua callback dari inline keyboard."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    # ── MONITORING ──
+    if data == "mon_status":
+        symbols = get_active_symbols()
+        await query.edit_message_text(
+            f"🤖 Status Bot\n\n"
+            f"✅ Online\n"
+            f"Memantau: {len(symbols)} pair\n"
+            f"Zona dicari di: {', '.join(HTF_LIST)}\n"
+            f"Konfirmasi: {LTF}\n"
+            f"Cooldown: {ALERT_COOLDOWN_MINUTES} menit\n"
+            f"Cek tiap: {CHECK_INTERVAL_MINUTES} menit\n"
+            f"Filter trend MA{MA_PERIOD}: {'Aktif' if USE_TREND_FILTER else 'Nonaktif'}\n"
+            f"Min harga: ${MIN_PRICE_USD}",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 Refresh", callback_data="mon_status")
+            ]])
+        )
+
+    elif data == "mon_pairs":
+        symbols = get_active_symbols()
+        text = f"📋 {len(symbols)} Pair Dipantau:\n\n" + ", ".join(symbols)
+        if len(text) > 4096:
+            text = text[:4090] + "..."
+        await query.edit_message_text(text)
+
+    elif data == "mon_stats":
+        try:
+            stats = db.get_stats()
+            await query.edit_message_text(
+                format_stats_text(stats, "📈 Statistik Alert (semua waktu)"),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_stats")
+                ]])
+            )
+        except Exception as e:
+            await query.edit_message_text(f"Gagal ambil statistik: {e}")
+
+    elif data == "mon_daily":
+        try:
+            stats = db.get_daily_stats()
+            await query.edit_message_text(
+                format_stats_text(stats, "🗓️ Ringkasan 24 Jam Terakhir"),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_daily")
+                ]])
+            )
+        except Exception as e:
+            await query.edit_message_text(f"Gagal ambil data harian: {e}")
+
+    # ── ANALISIS ──
+    elif data == "ana_zones":
+        await query.edit_message_text(
+            "🔍 Cek Zona OB\n\nKetik nama pair yang ingin dicek:\nContoh: BTC-USDT-SWAP"
+        )
+        context.user_data["waiting_for"] = "zones"
+
+    elif data == "ana_price":
+        await query.edit_message_text(
+            "💰 Cek Harga\n\nKetik nama pair:\nContoh: BTC-USDT-SWAP"
+        )
+        context.user_data["waiting_for"] = "price"
+
+    # ── BACKTEST ──
+    elif data in ("bt_btc_1", "bt_eth_1", "bt_sol_1"):
+        symbol_map = {
+            "bt_btc_1": "BTC-USDT-SWAP",
+            "bt_eth_1": "ETH-USDT-SWAP",
+            "bt_sol_1": "SOL-USDT-SWAP",
+        }
+        symbol = symbol_map[data]
+        await query.edit_message_text(f"⏳ Memulai backtest {symbol}, 1 bulan...\nMohon tunggu 1-3 menit.")
+        result_text = await run_backtest_async(symbol, 1)
+        await context.bot.send_message(chat_id=query.message.chat_id, text=result_text)
+
+    elif data == "bt_custom":
+        await query.edit_message_text(
+            "✏️ Backtest Custom\n\nKetik nama pair:\nContoh: SOL-USDT-SWAP"
+        )
+        context.user_data["waiting_for"] = "backtest_symbol"
+
+    # ── PENGATURAN ──
+    elif data == "set_config":
+        await query.edit_message_text(
+            f"⚙️ Konfigurasi Aktif\n\n"
+            f"HTF: {', '.join(HTF_LIST)}\n"
+            f"LTF: {LTF}\n"
+            f"Impulse min: {IMPULSE_MIN_PERCENT}%\n"
+            f"Volume multiplier: {VOLUME_MULTIPLIER}x\n"
+            f"MA period: {MA_PERIOD}\n"
+            f"Filter trend: {'Aktif' if USE_TREND_FILTER else 'Nonaktif'}\n"
+            f"Min harga pair: ${MIN_PRICE_USD}\n"
+            f"Top N pair: {TOP_N_PAIRS}\n"
+            f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit\n"
+            f"Interval scan: {CHECK_INTERVAL_MINUTES} menit"
+        )
+
+    elif data == "set_help":
+        await query.edit_message_text(
+            "❓ Bantuan\n\n"
+            "📊 Monitoring — pantau status bot dan statistik\n"
+            "📈 Analisis — cek zona OB dan harga pair tertentu\n"
+            "🔬 Backtest — uji performa historis strategi OB\n"
+            "⚙️ Pengaturan — lihat konfigurasi aktif\n\n"
+            "Command manual:\n"
+            "/start — tampilkan menu\n"
+            "/zones BTC-USDT-SWAP — cek zona OB\n"
+            "/backtest BTC-USDT-SWAP 3 — backtest 3 bulan\n"
+            "/stats — statistik alert\n"
+            "/pairs — daftar pair"
+        )
+
+
+async def text_input_handler(update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle input teks dari user setelah diminta (zones, price, backtest custom)."""
+    text = update.message.text.strip().upper()
+    waiting = context.user_data.get("waiting_for")
+
+    if waiting == "zones":
+        context.user_data.pop("waiting_for", None)
+        await update.message.reply_text(f"🔍 Mengambil data zona OB untuk {text}...")
+        try:
+            ltf_df = fetch_klines_df(text, LTF, LOOKBACK_CANDLES)
+            if hasattr(ltf_df, 'iloc'):
+                current_price = float(ltf_df.iloc[-1]["close"])
+            else:
+                current_price = float(ltf_df[-1]["close"])
+            lines = [f"Harga {text} sekarang: {current_price}\n"]
+            for htf in HTF_LIST:
+                htf_df = fetch_klines_df(text, htf, LOOKBACK_CANDLES)
+                zones = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
+                lines.append(f"\n📊 Timeframe {htf}:")
+                if not zones:
+                    lines.append("  Belum ada order block terdeteksi.")
+                    continue
+                for z in zones:
+                    emoji = "🟢" if z["type"] == "bullish" else "🔴"
+                    lines.append(f"  {emoji} {z['type'].capitalize()}: {z['bottom']} - {z['top']}")
+            await update.message.reply_text("\n".join(lines), reply_markup=main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"Gagal ambil data untuk {text}: {e}", reply_markup=main_keyboard())
+
+    elif waiting == "price":
+        context.user_data.pop("waiting_for", None)
+        try:
+            price = get_current_price(text)
+            if price:
+                await update.message.reply_text(f"💰 {text}\nHarga sekarang: {price}", reply_markup=main_keyboard())
+            else:
+                await update.message.reply_text(f"Gagal ambil harga {text}.", reply_markup=main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"Error: {e}", reply_markup=main_keyboard())
+
+    elif waiting == "backtest_symbol":
+        context.user_data["backtest_symbol"] = text
+        context.user_data["waiting_for"] = "backtest_months"
+        await update.message.reply_text(
+            f"Pair: {text}\nBerapa bulan data historis? (1-6)\nKetik angkanya:"
+        )
+
+    elif waiting == "backtest_months":
+        context.user_data.pop("waiting_for", None)
+        symbol = context.user_data.pop("backtest_symbol", "BTC-USDT-SWAP")
+        try:
+            months = max(1, min(int(text), 6))
+        except ValueError:
+            months = 1
+        await update.message.reply_text(f"⏳ Memulai backtest {symbol}, {months} bulan...\nMohon tunggu 1-3 menit.")
+        result_text = await run_backtest_async(symbol, months)
+        await update.message.reply_text(result_text, reply_markup=main_keyboard())
+
+    else:
+        # Bukan input yang ditunggu, abaikan (menu router yang handle)
+        pass
+
+
+async def run_backtest_async(symbol: str, months: int) -> str:
+    """Jalankan backtest dan return teks hasil — dipakai oleh inline callback dan command."""
+    try:
+        from datetime import datetime, timedelta, timezone
+        end_ts_ms = int(time.time() * 1000)
+        start_ts_ms = int((datetime.now(timezone.utc) - timedelta(days=months * 30)).timestamp() * 1000)
+
+        ltf_data = ob_core.fetch_full_history(symbol, LTF, start_ts_ms, end_ts_ms)
+        ltf_list = ltf_data.to_dict("records") if hasattr(ltf_data, 'to_dict') else ltf_data
+
+        if len(ltf_list) < LOOKBACK_CANDLES:
+            return f"Data tidak cukup untuk {symbol}."
+
+        all_results = []
+        seen_zones = set()
+
+        for htf in HTF_LIST:
+            htf_data = ob_core.fetch_full_history(symbol, htf, start_ts_ms, end_ts_ms)
+            htf_list_bt = htf_data.to_dict("records") if hasattr(htf_data, 'to_dict') else htf_data
+            if len(htf_list_bt) < LOOKBACK_CANDLES + 10:
+                continue
+
+            for end_idx in range(LOOKBACK_CANDLES, len(htf_list_bt)):
+                window = htf_list_bt[end_idx - LOOKBACK_CANDLES:end_idx]
+                zones = ob_core.detect_order_blocks(window, MAX_ACTIVE_ZONES_PER_TF, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER)
+                if not zones:
+                    continue
+                current_htf_ts = htf_list_bt[end_idx]["ts"]
+                current_price = htf_list_bt[end_idx]["close"]
+
+                for zone in zones:
+                    zone_key = (zone["type"], round(zone["top"], 8), round(zone["bottom"], 8))
+                    if zone_key in seen_zones:
+                        continue
+                    if not (zone["bottom"] <= current_price <= zone["top"]):
+                        continue
+                    ltf_slice = [c for c in ltf_list if c["ts"] <= current_htf_ts][-3:]
+                    if len(ltf_slice) < 3 or not ob_core.ltf_shows_reaction(ltf_slice, zone):
+                        continue
+                    seen_zones.add(zone_key)
+                    risk = abs(current_price - (zone["bottom"] if zone["type"] == "bullish" else zone["top"]))
+                    if risk == 0:
+                        continue
+                    target = current_price + risk * 1.5 if zone["type"] == "bullish" else current_price - risk * 1.5
+                    invalidation = zone["bottom"] if zone["type"] == "bullish" else zone["top"]
+                    future = [c for c in ltf_list if c["ts"] > current_htf_ts][:200]
+                    outcome = "unresolved"
+                    for c in future:
+                        if zone["type"] == "bullish":
+                            if c["high"] >= target:
+                                outcome = "win"; break
+                            if c["low"] <= invalidation:
+                                outcome = "loss"; break
+                        else:
+                            if c["low"] <= target:
+                                outcome = "win"; break
+                            if c["high"] >= invalidation:
+                                outcome = "loss"; break
+                    all_results.append({"htf": htf, "zone_type": zone["type"], "outcome": outcome})
+
+        if not all_results:
+            return f"Backtest {symbol} ({months} bln): tidak ada sinyal."
+
+        total = len(all_results)
+        win = sum(1 for r in all_results if r["outcome"] == "win")
+        loss = sum(1 for r in all_results if r["outcome"] == "loss")
+        unresolved = total - win - loss
+        resolved = win + loss
+        win_rate = f"{win / resolved * 100:.1f}%" if resolved > 0 else "N/A"
+
+        by_htf = defaultdict(lambda: {"win": 0, "loss": 0, "total": 0})
+        for r in all_results:
+            by_htf[r["htf"]]["total"] += 1
+            if r["outcome"] == "win":
+                by_htf[r["htf"]]["win"] += 1
+            elif r["outcome"] == "loss":
+                by_htf[r["htf"]]["loss"] += 1
+
+        htf_lines = []
+        for htf, g in sorted(by_htf.items()):
+            res = g["win"] + g["loss"]
+            wr = f"{g['win'] / res * 100:.1f}%" if res > 0 else "N/A"
+            htf_lines.append(f"  {htf}: {g['total']} sinyal, WR {wr}")
+
+        return (
+            f"📊 Hasil Backtest {symbol} ({months} bln)\n\n"
+            f"Total sinyal : {total}\n"
+            f"Win          : {win}\n"
+            f"Loss         : {loss}\n"
+            f"Unresolved   : {unresolved}\n"
+            f"Win rate     : {win_rate} ({resolved} resolved)\n\n"
+            f"Per timeframe:\n" + "\n".join(htf_lines) + "\n\n"
+            f"*Target R:R 1.5x risk (estimasi kasar)"
+        )
+    except Exception as e:
+        return f"Gagal backtest {symbol}: {e}"
+
+
 async def on_startup(app):
     """Dipanggil setelah event loop bot aktif — aman untuk start scheduler di sini."""
     scheduler = AsyncIOScheduler()
@@ -633,11 +979,24 @@ def main():
         )
 
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
+
+    # Command handlers (tetap tersedia untuk power user)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pairs", pairs_now))
     app.add_handler(CommandHandler("zones", zones_now))
     app.add_handler(CommandHandler("stats", stats_now))
     app.add_handler(CommandHandler("backtest", backtest_command))
+
+    # Inline keyboard callback
+    app.add_handler(CallbackQueryHandler(inline_callback))
+
+    # Reply keyboard router + text input handler
+    # Urutan penting: menu_router duluan untuk tombol menu, text_input_handler untuk input custom
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^(📊 Monitoring|📈 Analisis|🔬 Backtest|⚙️ Pengaturan)$"),
+        menu_router
+    ))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_input_handler))
 
     logger.info("Bot mulai polling...")
     app.run_polling()
