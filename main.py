@@ -24,9 +24,14 @@ LTF = os.environ.get("LTF", "1H")
 
 # Parameter deteksi Order Block
 LOOKBACK_CANDLES = int(os.environ.get("LOOKBACK_CANDLES", 50))
-IMPULSE_MIN_PERCENT = float(os.environ.get("IMPULSE_MIN_PERCENT", 1.5))
+IMPULSE_MIN_PERCENT = float(os.environ.get("IMPULSE_MIN_PERCENT", 3.0))   # dinaikkan dari 1.5 ke 3.0
 MAX_ACTIVE_ZONES_PER_TF = int(os.environ.get("MAX_ACTIVE_ZONES_PER_TF", 3))
-VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", 1.2))  # candle OB butuh volume >= 1.2x rata-rata
+VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", 1.2))
+
+# Filter kualitas tambahan
+MIN_PRICE_USD = float(os.environ.get("MIN_PRICE_USD", 0.01))  # skip pair dengan harga < $0.01 (micro-price)
+MA_PERIOD = int(os.environ.get("MA_PERIOD", 50))               # periode MA untuk filter trend
+USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
 
 # Scanner multi-pair (OKX Futures - USDT-margined swap/perpetual)
 TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", 30))
@@ -113,6 +118,54 @@ def calculate_risk_reward(zone: dict, current_price: float, target: Optional[flo
     return ob_core.calculate_risk_reward(zone, current_price, target)
 
 
+def get_current_price(symbol: str) -> Optional[float]:
+    """Ambil harga terakhir pair dari endpoint ticker OKX."""
+    try:
+        data = ob_core.okx_get("/api/v5/market/ticker", {"instId": symbol})
+        return float(data["data"][0]["last"])
+    except Exception:
+        return None
+
+
+def is_price_above_min(current_price: float) -> bool:
+    """Return True kalau harga >= MIN_PRICE_USD (filter micro-price pair)."""
+    return current_price >= MIN_PRICE_USD
+
+
+def calculate_ma(candles: list, period: int) -> Optional[float]:
+    """Hitung Moving Average dari close price N candle terakhir."""
+    if len(candles) < period:
+        return None
+    closes = [c["close"] if isinstance(c, dict) else float(c["close"]) for c in candles[-period:]]
+    return sum(closes) / len(closes)
+
+
+def trend_allows_zone(zone: dict, current_price: float, htf_candles) -> bool:
+    """
+    Filter trend: cek apakah arah zona OB searah dengan trend MA50 HTF.
+    - Bullish OB valid hanya kalau harga di atas MA50 (uptrend / area demand)
+    - Bearish OB valid hanya kalau harga di bawah MA50 (downtrend / area supply)
+    Kalau USE_TREND_FILTER=false atau MA tidak bisa dihitung, lewatkan filter ini.
+    """
+    if not USE_TREND_FILTER:
+        return True
+
+    if isinstance(htf_candles, list):
+        candles_list = htf_candles
+    else:
+        candles_list = htf_candles.to_dict("records") if hasattr(htf_candles, 'to_dict') else list(htf_candles)
+
+    ma = calculate_ma(candles_list, MA_PERIOD)
+    if ma is None:
+        return True  # tidak cukup data, jangan blokir
+
+    if zone["type"] == "bullish" and current_price > ma:
+        return True   # harga di atas MA -> uptrend -> bullish OB valid
+    if zone["type"] == "bearish" and current_price < ma:
+        return True   # harga di bawah MA -> downtrend -> bearish OB valid
+    return False
+
+
 async def check_symbol(app, symbol: str) -> bool:
     """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF.
     Return True kalau berhasil dicek, False kalau gagal (untuk health tracking)."""
@@ -122,13 +175,27 @@ async def check_symbol(app, symbol: str) -> bool:
 
     try:
         ltf_df = fetch_klines_df(symbol, LTF, LOOKBACK_CANDLES)
-        current_price = float(ltf_df.iloc[-1]["close"])
+        if hasattr(ltf_df, 'iloc'):
+            current_price = float(ltf_df.iloc[-1]["close"])
+        else:
+            current_price = float(ltf_df[-1]["close"])
+
+        # Filter 1: skip pair micro-price (harga terlalu kecil = noise tinggi)
+        if not is_price_above_min(current_price):
+            logger.info(f"[{symbol}] Skip — harga {current_price} < MIN_PRICE_USD {MIN_PRICE_USD}")
+            return True  # bukan error, cuma di-skip
 
         for htf in HTF_LIST:
             htf_df = fetch_klines_df(symbol, htf, LOOKBACK_CANDLES)
             detected = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
             detected = merge_zone_state(active_zones[symbol].get(htf, []), detected)
             active_zones[symbol][htf] = detected
+
+            # Siapkan candles list untuk filter trend MA
+            if hasattr(htf_df, 'to_dict'):
+                htf_candles_list = htf_df.to_dict("records")
+            else:
+                htf_candles_list = htf_df
 
             for zone in detected:
                 if zone["mitigated"]:
@@ -141,11 +208,17 @@ async def check_symbol(app, symbol: str) -> bool:
                 if not ltf_shows_reaction(ltf_df, zone):
                     continue
 
-                # Cooldown: skip alert kalau pair ini baru saja kirim alert (apapun jenisnya)
+                # Filter 2: trend filter — arah zona harus searah MA50 HTF
+                if not trend_allows_zone(zone, current_price, htf_candles_list):
+                    logger.info(f"[{symbol}] Skip zona {zone['type']} — berlawanan dengan trend MA{MA_PERIOD}")
+                    zone["mitigated"] = True
+                    continue
+
+                # Cooldown
                 now = time.time()
                 last_sent = last_alert_time.get(symbol, 0)
                 if (now - last_sent) < ALERT_COOLDOWN_MINUTES * 60:
-                    zone["mitigated"] = True  # tetap tandai biar tidak dicek ulang terus, tapi tidak kirim alert
+                    zone["mitigated"] = True
                     continue
 
                 emoji = "🟢" if zone["type"] == "bullish" else "🔴"
@@ -155,6 +228,8 @@ async def check_symbol(app, symbol: str) -> bool:
                 target = find_nearest_opposite_target(zone, current_price, active_zones[symbol])
                 rr = calculate_risk_reward(zone, current_price, target)
                 target_text = f"{target}" if target is not None else "tidak tersedia"
+                ma_val = calculate_ma(htf_candles_list, MA_PERIOD)
+                trend_text = f"MA{MA_PERIOD}: {ma_val:.4g} ({'↑ Uptrend' if current_price > ma_val else '↓ Downtrend'})" if ma_val else "N/A"
 
                 await app.bot.send_message(
                     chat_id=CHAT_ID,
@@ -165,7 +240,8 @@ async def check_symbol(app, symbol: str) -> bool:
                         f"Zona: {zone['bottom']} - {zone['top']}\n"
                         f"Invalidasi: {invalidation}\n"
                         f"Target terdekat: {target_text}\n"
-                        f"Estimasi R:R: {rr}"
+                        f"Estimasi R:R: {rr}\n"
+                        f"Trend ({htf}): {trend_text}"
                     ),
                 )
                 zone["mitigated"] = True
