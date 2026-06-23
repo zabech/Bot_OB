@@ -287,7 +287,8 @@ async def start(update, context: ContextTypes.DEFAULT_TYPE):
         f"Ringkasan harian: jam {DAILY_SUMMARY_HOUR_UTC:02d}:{DAILY_SUMMARY_MINUTE_UTC:02d} UTC.\n\n"
         f"Gunakan /pairs untuk lihat daftar pair yang dipantau.\n"
         f"Gunakan /zones SYMBOL untuk lihat zona OB pair tertentu (misal /zones BTC-USDT-SWAP).\n"
-        f"Gunakan /stats untuk lihat ringkasan performa alert."
+        f"Gunakan /stats untuk lihat ringkasan performa alert.\n"
+        f"Gunakan /backtest SYMBOL BULAN untuk backtest historis (misal /backtest BTC-USDT-SWAP 3)."
     )
 
 
@@ -377,6 +378,154 @@ async def send_daily_summary(app):
         logger.error(f"Gagal kirim ringkasan harian: {e}")
 
 
+async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /backtest                    -> BTC-USDT-SWAP, 1 bulan
+    /backtest ETH-USDT-SWAP      -> 1 pair custom, 1 bulan
+    /backtest ETH-USDT-SWAP 3    -> 1 pair custom, 3 bulan
+    """
+    args = context.args
+    symbol = args[0].upper() if args else "BTC-USDT-SWAP"
+    try:
+        months = int(args[1]) if len(args) >= 2 else 1
+        months = max(1, min(months, 6))  # batasi 1-6 bulan
+    except ValueError:
+        await update.message.reply_text("Format: /backtest SYMBOL BULAN\nContoh: /backtest BTC-USDT-SWAP 3")
+        return
+
+    await update.message.reply_text(
+        f"⏳ Memulai backtest {symbol}, {months} bulan...\n"
+        f"HTF: {', '.join(HTF_LIST)} | LTF: {LTF}\n"
+        f"Estimasi waktu: 1-3 menit, mohon tunggu."
+    )
+
+    try:
+        from datetime import datetime, timedelta, timezone
+        from collections import defaultdict
+
+        end_ts_ms = int(time.time() * 1000)
+        start_ts_ms = int((datetime.now(timezone.utc) - timedelta(days=months * 30)).timestamp() * 1000)
+
+        # Ambil data historis LTF
+        ltf_candles = ob_core.fetch_full_history(symbol, LTF, start_ts_ms, end_ts_ms)
+        if hasattr(ltf_candles, 'to_dict'):
+            ltf_list = ltf_candles.to_dict("records")
+        else:
+            ltf_list = ltf_candles
+
+        if len(ltf_list) < LOOKBACK_CANDLES:
+            await update.message.reply_text(f"Data tidak cukup untuk {symbol}. Coba pair lain.")
+            return
+
+        all_results = []
+        seen_zones = set()
+
+        for htf in HTF_LIST:
+            htf_data = ob_core.fetch_full_history(symbol, htf, start_ts_ms, end_ts_ms)
+            if hasattr(htf_data, 'to_dict'):
+                htf_list = htf_data.to_dict("records")
+            else:
+                htf_list = htf_data
+
+            if len(htf_list) < LOOKBACK_CANDLES + 10:
+                continue
+
+            for end_idx in range(LOOKBACK_CANDLES, len(htf_list)):
+                window = htf_list[end_idx - LOOKBACK_CANDLES:end_idx]
+                zones = ob_core.detect_order_blocks(window, MAX_ACTIVE_ZONES_PER_TF, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER)
+                if not zones:
+                    continue
+
+                current_htf_ts = htf_list[end_idx]["ts"]
+                current_price = htf_list[end_idx]["close"]
+
+                for zone in zones:
+                    zone_key = (zone["type"], round(zone["top"], 8), round(zone["bottom"], 8))
+                    if zone_key in seen_zones:
+                        continue
+                    if not (zone["bottom"] <= current_price <= zone["top"]):
+                        continue
+
+                    ltf_slice = [c for c in ltf_list if c["ts"] <= current_htf_ts][-3:]
+                    if len(ltf_slice) < 3:
+                        continue
+                    if not ob_core.ltf_shows_reaction(ltf_slice, zone):
+                        continue
+
+                    seen_zones.add(zone_key)
+                    risk = abs(current_price - (zone["bottom"] if zone["type"] == "bullish" else zone["top"]))
+                    if risk == 0:
+                        continue
+
+                    target = current_price + risk * 1.5 if zone["type"] == "bullish" else current_price - risk * 1.5
+                    invalidation = zone["bottom"] if zone["type"] == "bullish" else zone["top"]
+
+                    # Resolve trade ke depan
+                    future = [c for c in ltf_list if c["ts"] > current_htf_ts][:200]
+                    outcome = "unresolved"
+                    for c in future:
+                        if zone["type"] == "bullish":
+                            if c["high"] >= target:
+                                outcome = "win"
+                                break
+                            if c["low"] <= invalidation:
+                                outcome = "loss"
+                                break
+                        else:
+                            if c["low"] <= target:
+                                outcome = "win"
+                                break
+                            if c["high"] >= invalidation:
+                                outcome = "loss"
+                                break
+
+                    all_results.append({"htf": htf, "zone_type": zone["type"], "outcome": outcome})
+
+        # Buat ringkasan
+        total = len(all_results)
+        if total == 0:
+            await update.message.reply_text(
+                f"Backtest {symbol} ({months} bulan) selesai.\nTidak ada sinyal yang terbentuk."
+            )
+            return
+
+        win = sum(1 for r in all_results if r["outcome"] == "win")
+        loss = sum(1 for r in all_results if r["outcome"] == "loss")
+        unresolved = sum(1 for r in all_results if r["outcome"] == "unresolved")
+        resolved = win + loss
+        win_rate = f"{win / resolved * 100:.1f}%" if resolved > 0 else "N/A"
+
+        by_htf = defaultdict(lambda: {"win": 0, "loss": 0, "total": 0})
+        for r in all_results:
+            by_htf[r["htf"]]["total"] += 1
+            if r["outcome"] == "win":
+                by_htf[r["htf"]]["win"] += 1
+            elif r["outcome"] == "loss":
+                by_htf[r["htf"]]["loss"] += 1
+
+        htf_lines = []
+        for htf, g in sorted(by_htf.items()):
+            res = g["win"] + g["loss"]
+            wr = f"{g['win'] / res * 100:.1f}%" if res > 0 else "N/A"
+            htf_lines.append(f"  {htf}: {g['total']} sinyal, win rate {wr}")
+
+        await update.message.reply_text(
+            f"📊 Hasil Backtest {symbol} ({months} bulan)\n"
+            f"HTF: {', '.join(HTF_LIST)} | LTF: {LTF}\n\n"
+            f"Total sinyal : {total}\n"
+            f"Win          : {win}\n"
+            f"Loss         : {loss}\n"
+            f"Unresolved   : {unresolved}\n"
+            f"Win rate     : {win_rate} (dari {resolved} resolved)\n\n"
+            f"Per timeframe:\n" + "\n".join(htf_lines) + "\n\n"
+            f"*Target pakai R:R 1.5x risk (estimasi kasar)"
+        )
+
+    except Exception as e:
+        logger.error(f"Backtest command error: {e}")
+        await update.message.reply_text(f"Gagal menjalankan backtest: {e}")
+
+
 async def on_startup(app):
     """Dipanggil setelah event loop bot aktif — aman untuk start scheduler di sini."""
     scheduler = AsyncIOScheduler()
@@ -412,6 +561,7 @@ def main():
     app.add_handler(CommandHandler("pairs", pairs_now))
     app.add_handler(CommandHandler("zones", zones_now))
     app.add_handler(CommandHandler("stats", stats_now))
+    app.add_handler(CommandHandler("backtest", backtest_command))
 
     logger.info("Bot mulai polling...")
     app.run_polling()
