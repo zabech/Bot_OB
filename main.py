@@ -43,6 +43,10 @@ MIN_PRICE_USD = float(os.environ.get("MIN_PRICE_USD", 0.01))  # skip pair dengan
 MA_PERIOD = int(os.environ.get("MA_PERIOD", 50))               # periode MA untuk filter trend
 USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
 
+# Risk management
+SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", 0.5))  # buffer SL di luar invalidasi
+RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", 2.0))   # fixed R:R (default 1:2)
+
 # Scanner multi-pair (OKX Futures - USDT-margined swap/perpetual)
 TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", 30))
 PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
@@ -234,10 +238,24 @@ async def check_symbol(app, symbol: str) -> bool:
                 emoji = "🟢" if zone["type"] == "bullish" else "🔴"
                 label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
 
+                # SL: sedikit di luar zona invalidasi (+ buffer 0.5%)
                 invalidation = calculate_invalidation(zone)
-                target = find_nearest_opposite_target(zone, current_price, active_zones[symbol])
-                rr = calculate_risk_reward(zone, current_price, target)
-                target_text = f"{target}" if target is not None else "tidak tersedia"
+                if zone["type"] == "bullish":
+                    sl = invalidation * (1 - SL_BUFFER_PERCENT / 100)
+                else:
+                    sl = invalidation * (1 + SL_BUFFER_PERCENT / 100)
+
+                # Risk = jarak entry ke SL
+                risk = abs(current_price - sl)
+
+                # Target = fixed R:R 1:2
+                if zone["type"] == "bullish":
+                    tp = current_price + risk * RISK_REWARD_RATIO
+                else:
+                    tp = current_price - risk * RISK_REWARD_RATIO
+
+                risk_pct = (risk / current_price * 100)
+
                 ma_val = calculate_ma(htf_candles_list, MA_PERIOD)
                 trend_text = f"MA{MA_PERIOD}: {ma_val:.4g} ({'↑ Uptrend' if current_price > ma_val else '↓ Downtrend'})" if ma_val else "N/A"
 
@@ -246,12 +264,12 @@ async def check_symbol(app, symbol: str) -> bool:
                     text=(
                         f"{emoji} {symbol} memasuki Order Block {label}\n"
                         f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
-                        f"Harga sekarang: {current_price}\n"
-                        f"Zona: {zone['bottom']} - {zone['top']}\n"
-                        f"Invalidasi: {invalidation}\n"
-                        f"Target terdekat: {target_text}\n"
-                        f"Estimasi R:R: {rr}\n"
-                        f"Trend ({htf}): {trend_text}"
+                        f"Harga sekarang : {current_price}\n"
+                        f"Zona           : {zone['bottom']} - {zone['top']}\n"
+                        f"🛑 Stop Loss   : {sl:.4g} ({SL_BUFFER_PERCENT}% buffer)\n"
+                        f"🎯 Take Profit : {tp:.4g} (R:R 1:{RISK_REWARD_RATIO:.0f})\n"
+                        f"⚠️ Risk        : {risk_pct:.2f}%\n"
+                        f"📊 Trend ({htf}): {trend_text}"
                     ),
                 )
                 zone["mitigated"] = True
@@ -766,6 +784,8 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             f"MA period: {MA_PERIOD}\n"
             f"Filter trend: {'Aktif' if USE_TREND_FILTER else 'Nonaktif'}\n"
             f"Min harga pair: ${MIN_PRICE_USD}\n"
+            f"SL buffer: {SL_BUFFER_PERCENT}%\n"
+            f"Risk/Reward: 1:{RISK_REWARD_RATIO:.0f}\n"
             f"Top N pair: {TOP_N_PAIRS}\n"
             f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit\n"
             f"Interval scan: {CHECK_INTERVAL_MINUTES} menit"
