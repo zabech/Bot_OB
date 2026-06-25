@@ -53,6 +53,13 @@ REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
 SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", 10))
 
+# Filter sesi trading (jam dalam UTC)
+# Semua sesi tetap jalan, tapi tiap alert diberi label kualitas sesi
+SESSION_LONDON_START = int(os.environ.get("SESSION_LONDON_START", 7))
+SESSION_LONDON_END = int(os.environ.get("SESSION_LONDON_END", 16))
+SESSION_NY_START = int(os.environ.get("SESSION_NY_START", 13))
+SESSION_NY_END = int(os.environ.get("SESSION_NY_END", 22))
+
 # Scanner multi-pair (OKX Futures - USDT-margined swap/perpetual)
 TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", 30))
 PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
@@ -143,6 +150,34 @@ def find_nearest_opposite_target(zone: dict, current_price: float, all_zones_for
 
 def calculate_risk_reward(zone: dict, current_price: float, target: Optional[float]) -> str:
     return ob_core.calculate_risk_reward(zone, current_price, target)
+
+
+def get_session_info() -> tuple:
+    """
+    Tentukan sesi trading saat ini berdasarkan jam UTC.
+    Return: (nama_sesi, label_kualitas, emoji_bintang)
+
+    Sesi dan kualitasnya:
+    - London-NY Overlap (13:00-16:00 UTC) → Premium ⭐⭐⭐
+    - London (07:00-13:00 UTC)            → Aktif   ⭐⭐
+    - New York (16:00-22:00 UTC)          → Aktif   ⭐⭐
+    - Asia (22:00-07:00 UTC)              → Rendah  ⭐
+    """
+    from datetime import datetime, timezone
+    hour_utc = datetime.now(timezone.utc).hour
+
+    in_london = SESSION_LONDON_START <= hour_utc < SESSION_LONDON_END
+    in_ny = SESSION_NY_START <= hour_utc < SESSION_NY_END
+    in_overlap = in_london and in_ny
+
+    if in_overlap:
+        return ("London-NY Overlap", "Premium", "⭐⭐⭐")
+    elif in_london:
+        return ("London", "Aktif", "⭐⭐")
+    elif in_ny:
+        return ("New York", "Aktif", "⭐⭐")
+    else:
+        return ("Asia", "Rendah", "⭐")
 
 
 def get_current_price(symbol: str) -> Optional[float]:
@@ -313,6 +348,9 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
                 label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
                 fvg_tag = " + FVG ⚡" if zone.get("has_fvg") else ""
 
+                # Info sesi trading saat ini
+                session_name, session_quality, session_stars = get_session_info()
+
                 # SL: sedikit di luar zona invalidasi (+ buffer 0.5%)
                 invalidation = calculate_invalidation(zone)
                 if zone["type"] == "bullish":
@@ -344,7 +382,8 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
                         f"🛑 Stop Loss   : {sl:.4g} ({SL_BUFFER_PERCENT}% buffer)\n"
                         f"🎯 Take Profit : {tp:.4g} (R:R 1:{RISK_REWARD_RATIO:.0f})\n"
                         f"⚠️ Risk        : {risk_pct:.2f}%\n"
-                        f"📊 Trend ({htf}): {trend_text}"
+                        f"📊 Trend ({htf}): {trend_text}\n"
+                        f"🕐 Sesi        : {session_name} {session_stars} ({session_quality})"
                     ),
                 )
                 zone["mitigated"] = True
@@ -780,6 +819,7 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
     # ── MONITORING ──
     if data == "mon_status":
         symbols = get_active_symbols()
+        session_name, session_quality, session_stars = get_session_info()
         await query.edit_message_text(
             f"🤖 Status Bot\n\n"
             f"✅ Online\n"
@@ -789,7 +829,8 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             f"Cooldown: {ALERT_COOLDOWN_MINUTES} menit\n"
             f"Cek tiap: {CHECK_INTERVAL_MINUTES} menit\n"
             f"Filter trend MA{MA_PERIOD}: {'Aktif' if USE_TREND_FILTER else 'Nonaktif'}\n"
-            f"Min harga: ${MIN_PRICE_USD}",
+            f"Min harga: ${MIN_PRICE_USD}\n\n"
+            f"🕐 Sesi sekarang: {session_name} {session_stars} ({session_quality})",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔄 Refresh", callback_data="mon_status")
             ]])
@@ -898,6 +939,8 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             f"Fair Value Gap: {'Aktif' if REQUIRE_FVG else 'Nonaktif'}\n"
             f"Mitigation 50%: {'Aktif' if MITIGATION_50PCT else 'Nonaktif'}\n"
             f"Swing lookback: {SWING_LOOKBACK} candle\n"
+            f"Sesi London: {SESSION_LONDON_START:02d}:00-{SESSION_LONDON_END:02d}:00 UTC\n"
+            f"Sesi NY    : {SESSION_NY_START:02d}:00-{SESSION_NY_END:02d}:00 UTC"
             f"Top N pair: {TOP_N_PAIRS}\n"
             f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit\n"
             f"Interval scan: {CHECK_INTERVAL_MINUTES} menit"
