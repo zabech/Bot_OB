@@ -79,8 +79,9 @@ active_zones = {}
 # Cache daftar top pair, di-refresh berkala
 top_pairs_cache = {"symbols": [], "last_refresh": 0}
 
-# Timestamp alert terakhir per pair, untuk cooldown: { "BTC-USDT-SWAP": 1719900000.0, ... }
-last_alert_time = {}
+# Trade aktif per pair — pair tidak boleh kirim sinyal baru sampai TP/SL tercapai
+# Format: { "BTC-USDT-SWAP": {"entry": 65000, "sl": 64200, "tp": 66600, "zone_type": "bullish", "htf": "4H"} }
+active_trades = {}
 
 # Timestamp health alert terakhir, untuk hindari spam notifikasi "bot bermasalah"
 last_health_alert_time = {"ts": 0}
@@ -180,7 +181,69 @@ def trend_allows_zone(zone: dict, current_price: float, htf_candles) -> bool:
     return False
 
 
-async def check_symbol(app, symbol: str) -> bool:
+async def check_active_trade(app, symbol: str, current_price: float) -> bool:
+    """
+    Cek apakah trade aktif untuk pair ini sudah resolved (TP atau SL tercapai).
+    Return True kalau pair masih punya trade aktif yang belum selesai (tidak boleh sinyal baru).
+    Return False kalau tidak ada trade aktif (boleh sinyal baru).
+    """
+    trade = active_trades.get(symbol)
+    if not trade:
+        return False  # tidak ada trade aktif, boleh sinyal baru
+
+    sl = trade["sl"]
+    tp = trade["tp"]
+    zone_type = trade["zone_type"]
+    entry = trade["entry"]
+    htf = trade["htf"]
+
+    hit_tp = (zone_type == "bullish" and current_price >= tp) or \
+             (zone_type == "bearish" and current_price <= tp)
+    hit_sl = (zone_type == "bullish" and current_price <= sl) or \
+             (zone_type == "bearish" and current_price >= sl)
+
+    if hit_tp:
+        emoji = "✅"
+        risk = abs(entry - sl)
+        profit_pct = abs(tp - entry) / entry * 100
+        await app.bot.send_message(
+            chat_id=CHAT_ID,
+            text=(
+                f"{emoji} {symbol} TP TERCAPAI!\n"
+                f"Timeframe: {htf} | {zone_type.capitalize()}\n"
+                f"Entry: {entry:.4g} → TP: {tp:.4g}\n"
+                f"Profit: +{profit_pct:.2f}% (R:R 1:{RISK_REWARD_RATIO:.0f})\n\n"
+                f"Pair kini terbuka untuk sinyal berikutnya."
+            )
+        )
+        del active_trades[symbol]
+        try:
+            db.resolve_alert_by_symbol(symbol, "hit_target")
+        except Exception:
+            pass
+        return False  # trade selesai, boleh sinyal baru
+
+    if hit_sl:
+        emoji = "❌"
+        loss_pct = abs(entry - sl) / entry * 100
+        await app.bot.send_message(
+            chat_id=CHAT_ID,
+            text=(
+                f"{emoji} {symbol} SL TERKENA!\n"
+                f"Timeframe: {htf} | {zone_type.capitalize()}\n"
+                f"Entry: {entry:.4g} → SL: {sl:.4g}\n"
+                f"Loss: -{loss_pct:.2f}%\n\n"
+                f"Pair kini terbuka untuk sinyal berikutnya."
+            )
+        )
+        del active_trades[symbol]
+        try:
+            db.resolve_alert_by_symbol(symbol, "invalidated")
+        except Exception:
+            pass
+        return False  # trade selesai, boleh sinyal baru
+
+    return True  # trade masih aktif, blokir sinyal baru
     """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF.
     Return True kalau berhasil dicek, False kalau gagal (untuk health tracking)."""
     global active_zones
@@ -198,6 +261,12 @@ async def check_symbol(app, symbol: str) -> bool:
         if not is_price_above_min(current_price):
             logger.info(f"[{symbol}] Skip — harga {current_price} < MIN_PRICE_USD {MIN_PRICE_USD}")
             return True  # bukan error, cuma di-skip
+
+        # Cek trade aktif dulu — kalau masih ada, cek apakah TP/SL sudah tercapai
+        still_active = await check_active_trade(app, symbol, current_price)
+        if still_active:
+            logger.info(f"[{symbol}] Trade aktif belum selesai, skip sinyal baru.")
+            return True
 
         for htf in HTF_LIST:
             htf_df = fetch_klines_df(symbol, htf, LOOKBACK_CANDLES)
@@ -225,13 +294,6 @@ async def check_symbol(app, symbol: str) -> bool:
                 # Filter 2: trend filter — arah zona harus searah MA50 HTF
                 if not trend_allows_zone(zone, current_price, htf_candles_list):
                     logger.info(f"[{symbol}] Skip zona {zone['type']} — berlawanan dengan trend MA{MA_PERIOD}")
-                    zone["mitigated"] = True
-                    continue
-
-                # Cooldown
-                now = time.time()
-                last_sent = last_alert_time.get(symbol, 0)
-                if (now - last_sent) < ALERT_COOLDOWN_MINUTES * 60:
                     zone["mitigated"] = True
                     continue
 
@@ -273,7 +335,15 @@ async def check_symbol(app, symbol: str) -> bool:
                     ),
                 )
                 zone["mitigated"] = True
-                last_alert_time[symbol] = now
+
+                # Simpan trade aktif — blokir sinyal baru sampai TP/SL tercapai
+                active_trades[symbol] = {
+                    "entry": current_price,
+                    "sl": sl,
+                    "tp": tp,
+                    "zone_type": zone["type"],
+                    "htf": htf,
+                }
 
                 try:
                     db.record_alert(
@@ -642,6 +712,7 @@ def monitoring_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🤖 Status Bot",       callback_data="mon_status")],
         [InlineKeyboardButton("📋 Daftar Pair",       callback_data="mon_pairs")],
+        [InlineKeyboardButton("💼 Trade Aktif",       callback_data="mon_trades")],
         [InlineKeyboardButton("📈 Statistik Alert",   callback_data="mon_stats")],
         [InlineKeyboardButton("🗓️ Ringkasan Harian",  callback_data="mon_daily")],
     ])
@@ -717,6 +788,30 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
         if len(text) > 4096:
             text = text[:4090] + "..."
         await query.edit_message_text(text)
+
+    elif data == "mon_trades":
+        if not active_trades:
+            await query.edit_message_text(
+                "💼 Trade Aktif\n\nTidak ada trade aktif saat ini.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
+                ]])
+            )
+        else:
+            lines = ["💼 Trade Aktif\n"]
+            for sym, t in active_trades.items():
+                emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
+                lines.append(
+                    f"{emoji} {sym} ({t['htf']})\n"
+                    f"   Entry: {t['entry']:.4g}\n"
+                    f"   SL: {t['sl']:.4g} | TP: {t['tp']:.4g}"
+                )
+            await query.edit_message_text(
+                "\n\n".join(lines),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
+                ]])
+            )
 
     elif data == "mon_stats":
         try:
