@@ -93,6 +93,22 @@ def resolve_alert(alert_id: int, status: str):
         conn.close()
 
 
+def resolve_alert_by_symbol(symbol: str, status: str):
+    """Tandai alert open terbaru untuk symbol ini sebagai selesai."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE alerts SET status = %s, resolved_at = now()
+                WHERE symbol = %s AND status = 'open'
+                ORDER BY created_at DESC
+                LIMIT 1;
+            """, (status, symbol))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_stats():
     """Hitung ringkasan statistik: total alert, win rate, breakdown status."""
     conn = get_connection()
