@@ -625,7 +625,7 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
                     if risk == 0:
                         continue
 
-                    target = current_price + risk * 1.5 if zone["type"] == "bullish" else current_price - risk * 1.5
+                    target = current_price + risk * RISK_REWARD_RATIO if zone["type"] == "bullish" else current_price - risk * RISK_REWARD_RATIO
                     invalidation = zone["bottom"] if zone["type"] == "bullish" else zone["top"]
 
                     # Resolve trade ke depan
@@ -686,7 +686,7 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
             f"Unresolved   : {unresolved}\n"
             f"Win rate     : {win_rate} (dari {resolved} resolved)\n\n"
             f"Per timeframe:\n" + "\n".join(htf_lines) + "\n\n"
-            f"*Target pakai R:R 1.5x risk (estimasi kasar)"
+            f"*Target pakai R:R 1:{RISK_REWARD_RATIO:.0f} (estimasi kasar)"
         )
 
     except Exception as e:
@@ -1008,7 +1008,7 @@ async def run_backtest_async(symbol: str, months: int) -> str:
                     risk = abs(current_price - (zone["bottom"] if zone["type"] == "bullish" else zone["top"]))
                     if risk == 0:
                         continue
-                    target = current_price + risk * 1.5 if zone["type"] == "bullish" else current_price - risk * 1.5
+                    target = current_price + risk * RISK_REWARD_RATIO if zone["type"] == "bullish" else current_price - risk * RISK_REWARD_RATIO
                     invalidation = zone["bottom"] if zone["type"] == "bullish" else zone["top"]
                     future = [c for c in ltf_list if c["ts"] > current_htf_ts][:200]
                     outcome = "unresolved"
@@ -1057,7 +1057,7 @@ async def run_backtest_async(symbol: str, months: int) -> str:
             f"Unresolved   : {unresolved}\n"
             f"Win rate     : {win_rate} ({resolved} resolved)\n\n"
             f"Per timeframe:\n" + "\n".join(htf_lines) + "\n\n"
-            f"*Target R:R 1.5x risk (estimasi kasar)"
+            f"*Target R:R 1:{RISK_REWARD_RATIO:.0f} (estimasi kasar)"
         )
     except Exception as e:
         return f"Gagal backtest {symbol}: {e}"
