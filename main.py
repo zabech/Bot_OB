@@ -47,6 +47,12 @@ USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", 0.5))  # buffer SL di luar invalidasi
 RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", 2.0))   # fixed R:R (default 1:2)
 
+# Konfigurasi deteksi OB tingkat lanjut
+REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
+REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
+MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
+SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", 10))
+
 # Scanner multi-pair (OKX Futures - USDT-margined swap/perpetual)
 TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", 30))
 PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
@@ -109,8 +115,14 @@ def fetch_klines_df(symbol: str, interval: str, limit: int) -> pd.DataFrame:
     return ob_core.fetch_klines_df(symbol, interval, limit)
 
 
-def detect_order_blocks(df: pd.DataFrame, max_zones: int) -> list:
-    return ob_core.detect_order_blocks(df, max_zones, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER)
+def detect_order_blocks(df, max_zones: int) -> list:
+    return ob_core.detect_order_blocks(
+        df, max_zones, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER,
+        require_bos=REQUIRE_BOS,
+        require_fvg=REQUIRE_FVG,
+        mitigation_50pct=MITIGATION_50PCT,
+        swing_lookback=SWING_LOOKBACK,
+    )
 
 
 def ltf_shows_reaction(ltf_df: pd.DataFrame, zone: dict) -> bool:
@@ -299,6 +311,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
 
                 emoji = "🟢" if zone["type"] == "bullish" else "🔴"
                 label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
+                fvg_tag = " + FVG ⚡" if zone.get("has_fvg") else ""
 
                 # SL: sedikit di luar zona invalidasi (+ buffer 0.5%)
                 invalidation = calculate_invalidation(zone)
@@ -324,7 +337,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
                 await app.bot.send_message(
                     chat_id=CHAT_ID,
                     text=(
-                        f"{emoji} {symbol} memasuki Order Block {label}\n"
+                        f"{emoji} {symbol} memasuki Order Block {label}{fvg_tag}\n"
                         f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
                         f"Harga sekarang : {current_price}\n"
                         f"Zona           : {zone['bottom']} - {zone['top']}\n"
@@ -881,6 +894,10 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             f"Min harga pair: ${MIN_PRICE_USD}\n"
             f"SL buffer: {SL_BUFFER_PERCENT}%\n"
             f"Risk/Reward: 1:{RISK_REWARD_RATIO:.0f}\n"
+            f"Break of Structure: {'Aktif' if REQUIRE_BOS else 'Nonaktif'}\n"
+            f"Fair Value Gap: {'Aktif' if REQUIRE_FVG else 'Nonaktif'}\n"
+            f"Mitigation 50%: {'Aktif' if MITIGATION_50PCT else 'Nonaktif'}\n"
+            f"Swing lookback: {SWING_LOOKBACK} candle\n"
             f"Top N pair: {TOP_N_PAIRS}\n"
             f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit\n"
             f"Interval scan: {CHECK_INTERVAL_MINUTES} menit"
