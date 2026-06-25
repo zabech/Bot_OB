@@ -154,12 +154,104 @@ def _get_val(row, key):
     return row[key]  # pandas Series juga support [key]
 
 
-def detect_order_blocks(data, max_zones: int, impulse_min_percent: float, volume_multiplier: float) -> list:
+def _find_swing_high(candles: list, start: int, lookback: int = 10) -> Optional[float]:
+    """Cari swing high tertinggi dalam N candle sebelum index start."""
+    window = candles[max(0, start - lookback):start]
+    if not window:
+        return None
+    return max(c["high"] for c in window)
+
+
+def _find_swing_low(candles: list, start: int, lookback: int = 10) -> Optional[float]:
+    """Cari swing low terendah dalam N candle sebelum index start."""
+    window = candles[max(0, start - lookback):start]
+    if not window:
+        return None
+    return min(c["low"] for c in window)
+
+
+def _has_break_of_structure(candles: list, ob_index: int, ob_type: str,
+                             impulse_end: int, swing_lookback: int = 10) -> bool:
     """
-    Deteksi order block. Menerima DataFrame (pandas) atau list of dict.
-    Filter kualitas:
-    1. Volume: candle OB >= volume_multiplier x rata-rata
-    2. Unmitigated: buang OB yang sudah ditembus harga setelah terbentuk
+    Cek Break of Structure (BoS): setelah OB terbentuk, harga harus menebus
+    swing high/low terdekat sebelum OB untuk membuktikan momentum.
+    - Bullish OB: harga harus menebus swing HIGH sebelum OB (bukti upward momentum)
+    - Bearish OB: harga harus menebus swing LOW sebelum OB (bukti downward momentum)
+    """
+    if ob_type == "bullish":
+        swing = _find_swing_high(candles, ob_index, swing_lookback)
+        if swing is None:
+            return True  # tidak ada data swing, lewatkan filter
+        after = candles[ob_index + 1:impulse_end + 1]
+        return any(c["high"] > swing for c in after)
+    else:
+        swing = _find_swing_low(candles, ob_index, swing_lookback)
+        if swing is None:
+            return True
+        after = candles[ob_index + 1:impulse_end + 1]
+        return any(c["low"] < swing for c in after)
+
+
+def _has_fvg_near_ob(candles: list, ob_index: int, ob_type: str,
+                      fvg_lookahead: int = 5) -> bool:
+    """
+    Cek Fair Value Gap (FVG) di sekitar OB:
+    FVG terbentuk kalau antara candle[i] dan candle[i+2], tidak ada overlap
+    dengan candle[i+1] (celah harga = imbalance/inefficiency).
+    - Bullish FVG: low[i+2] > high[i] → celah naik di dekat bullish OB
+    - Bearish FVG: high[i+2] < low[i] → celah turun di dekat bearish OB
+    Cek dalam fvg_lookahead candle setelah OB.
+    """
+    check_range = candles[ob_index + 1: ob_index + 1 + fvg_lookahead]
+    if len(check_range) < 3:
+        return False
+
+    for j in range(len(check_range) - 2):
+        c1, c3 = check_range[j], check_range[j + 2]
+        if ob_type == "bullish" and c3["low"] > c1["high"]:
+            return True  # bullish FVG ditemukan
+        if ob_type == "bearish" and c3["high"] < c1["low"]:
+            return True  # bearish FVG ditemukan
+    return False
+
+
+def _is_mitigated_50pct(candles: list, ob_index: int, zone_top: float,
+                          zone_bottom: float, ob_type: str) -> bool:
+    """
+    Mitigation 50%: OB dianggap sudah ditembus kalau harga menembus
+    TITIK TENGAH zona (bukan seluruh zona).
+    Lebih realistis karena harga sering hanya menyentuh 50% OB lalu berbalik.
+    - Bullish OB: ditembus kalau close < midpoint zona
+    - Bearish OB: ditembus kalau close > midpoint zona
+    """
+    midpoint = (zone_top + zone_bottom) / 2
+    after = candles[ob_index + 1:]
+
+    if ob_type == "bullish":
+        return any(c["close"] < midpoint for c in after)
+    else:
+        return any(c["close"] > midpoint for c in after)
+
+
+def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
+                         volume_multiplier: float,
+                         require_bos: bool = True,
+                         require_fvg: bool = False,
+                         mitigation_50pct: bool = True,
+                         swing_lookback: int = 10) -> list:
+    """
+    Deteksi order block dengan filter kualitas lengkap:
+    1. Volume    : candle OB >= volume_multiplier x rata-rata
+    2. Impulse   : pergerakan minimal impulse_min_percent dalam 3 candle ke depan
+    3. BoS       : harga harus menebus swing high/low sebelum OB (bukti momentum)
+    4. FVG       : ada Fair Value Gap di dekat OB (konfirmasi imbalance, opsional)
+    5. Mitigation: OB dibuang kalau 50% zona sudah ditembus (bukan seluruh zona)
+
+    Parameter:
+    - require_bos   : wajib ada Break of Structure (default True)
+    - require_fvg   : wajib ada Fair Value Gap (default False, lebih selektif tapi lebih sedikit sinyal)
+    - mitigation_50pct: pakai aturan 50% untuk mitigasi (default True)
+    - swing_lookback: jumlah candle ke belakang untuk cari swing high/low
     """
     # Normalisasi ke list of dict
     if HAS_PANDAS and hasattr(data, 'iterrows'):
@@ -183,34 +275,72 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float, volume
         if not future:
             continue
 
+        # Filter 1: Volume
         if c["vol"] < avg_vol * volume_multiplier:
             continue
 
         zone_top = c["high"]
         zone_bottom = c["low"]
-        after = candles[i + 1:]
 
         if is_bearish:
             max_high_future = max(f["high"] for f in future)
             move_pct = (max_high_future - c["close"]) / c["close"] * 100
-            if move_pct >= impulse_min_percent:
-                mitigated = any(a["close"] < zone_bottom for a in after)
-                if not mitigated:
-                    zones.append({
-                        "type": "bullish", "top": zone_top, "bottom": zone_bottom,
-                        "index": i, "mitigated": False,
-                    })
+            if move_pct < impulse_min_percent:
+                continue
+
+            ob_type = "bullish"
+            impulse_end = i + 3
+
+            # Filter 3: Break of Structure
+            if require_bos and not _has_break_of_structure(candles, i, ob_type, impulse_end, swing_lookback):
+                continue
+
+            # Filter 4: Fair Value Gap (opsional)
+            if require_fvg and not _has_fvg_near_ob(candles, i, ob_type):
+                continue
+
+            # Filter 5: Mitigation 50%
+            if mitigation_50pct:
+                mitigated = _is_mitigated_50pct(candles, i, zone_top, zone_bottom, ob_type)
+            else:
+                mitigated = any(a["close"] < zone_bottom for a in candles[i + 1:])
+
+            if not mitigated:
+                zones.append({
+                    "type": ob_type, "top": zone_top, "bottom": zone_bottom,
+                    "index": i, "mitigated": False,
+                    "has_fvg": _has_fvg_near_ob(candles, i, ob_type),
+                })
 
         if is_bullish:
             min_low_future = min(f["low"] for f in future)
             move_pct = (c["close"] - min_low_future) / c["close"] * 100
-            if move_pct >= impulse_min_percent:
-                mitigated = any(a["close"] > zone_top for a in after)
-                if not mitigated:
-                    zones.append({
-                        "type": "bearish", "top": zone_top, "bottom": zone_bottom,
-                        "index": i, "mitigated": False,
-                    })
+            if move_pct < impulse_min_percent:
+                continue
+
+            ob_type = "bearish"
+            impulse_end = i + 3
+
+            # Filter 3: Break of Structure
+            if require_bos and not _has_break_of_structure(candles, i, ob_type, impulse_end, swing_lookback):
+                continue
+
+            # Filter 4: Fair Value Gap (opsional)
+            if require_fvg and not _has_fvg_near_ob(candles, i, ob_type):
+                continue
+
+            # Filter 5: Mitigation 50%
+            if mitigation_50pct:
+                mitigated = _is_mitigated_50pct(candles, i, zone_top, zone_bottom, ob_type)
+            else:
+                mitigated = any(a["close"] > zone_top for a in candles[i + 1:])
+
+            if not mitigated:
+                zones.append({
+                    "type": ob_type, "top": zone_top, "bottom": zone_bottom,
+                    "index": i, "mitigated": False,
+                    "has_fvg": _has_fvg_near_ob(candles, i, ob_type),
+                })
 
     zones.sort(key=lambda z: z["index"], reverse=True)
     return zones[:max_zones]
