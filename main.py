@@ -44,8 +44,10 @@ MA_PERIOD = int(os.environ.get("MA_PERIOD", 50))               # periode MA untu
 USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
 
 # Risk management
-SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", 0.5))  # buffer SL di luar invalidasi
+SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", 0.5))  # buffer SL di luar invalidasi (fallback)
 RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", 2.0))   # fixed R:R (default 1:2)
+ATR_PERIOD = int(os.environ.get("ATR_PERIOD", 14))                     # periode ATR untuk hitung SL
+ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", 1.5))          # SL = invalidasi ± (ATR × multiplier)
 
 # Konfigurasi deteksi OB tingkat lanjut
 REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
@@ -178,6 +180,63 @@ def get_session_info() -> tuple:
         return ("New York", "Aktif", "⭐⭐")
     else:
         return ("Asia", "Rendah", "⭐")
+
+
+def calculate_atr(candles: list, period: int) -> Optional[float]:
+    """
+    Hitung ATR (Average True Range) dari list of dict candle.
+    True Range = max(high-low, |high-prev_close|, |low-prev_close|)
+    ATR = rata-rata True Range dalam N periode terakhir.
+    """
+    if len(candles) < period + 1:
+        return None
+
+    true_ranges = []
+    for i in range(1, len(candles)):
+        high = candles[i]["high"]
+        low = candles[i]["low"]
+        prev_close = candles[i - 1]["close"]
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        true_ranges.append(tr)
+
+    if len(true_ranges) < period:
+        return None
+
+    return sum(true_ranges[-period:]) / period
+
+
+def calculate_sl_with_atr(zone: dict, current_price: float,
+                           htf_candles: list) -> tuple:
+    """
+    Hitung Stop Loss berdasarkan ATR pair di HTF:
+    - SL = invalidasi ± (ATR × ATR_MULTIPLIER)
+    - Kalau ATR tidak tersedia (data kurang), fallback ke buffer flat SL_BUFFER_PERCENT
+    - Kalau ATR-based SL lebih kecil dari flat buffer, pakai yang lebih besar (lebih aman)
+
+    Return: (sl_price, sl_method) — sl_method = "ATR" atau "buffer"
+    """
+    invalidation = calculate_invalidation(zone)
+    atr = calculate_atr(htf_candles, ATR_PERIOD)
+
+    # SL flat buffer (fallback)
+    if zone["type"] == "bullish":
+        sl_flat = invalidation * (1 - SL_BUFFER_PERCENT / 100)
+    else:
+        sl_flat = invalidation * (1 + SL_BUFFER_PERCENT / 100)
+
+    if atr is None:
+        return (sl_flat, "buffer")
+
+    # SL berbasis ATR
+    if zone["type"] == "bullish":
+        sl_atr = invalidation - atr * ATR_MULTIPLIER
+        # Ambil yang lebih jauh dari harga (lebih konservatif/aman)
+        sl = min(sl_atr, sl_flat)
+    else:
+        sl_atr = invalidation + atr * ATR_MULTIPLIER
+        sl = max(sl_atr, sl_flat)
+
+    return (sl, "ATR")
 
 
 def get_current_price(symbol: str) -> Optional[float]:
@@ -351,12 +410,8 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
                 # Info sesi trading saat ini
                 session_name, session_quality, session_stars = get_session_info()
 
-                # SL: sedikit di luar zona invalidasi (+ buffer 0.5%)
-                invalidation = calculate_invalidation(zone)
-                if zone["type"] == "bullish":
-                    sl = invalidation * (1 - SL_BUFFER_PERCENT / 100)
-                else:
-                    sl = invalidation * (1 + SL_BUFFER_PERCENT / 100)
+                # SL berbasis ATR (fallback ke flat buffer kalau ATR tidak tersedia)
+                sl, sl_method = calculate_sl_with_atr(zone, current_price, htf_candles_list)
 
                 # Risk = jarak entry ke SL
                 risk = abs(current_price - sl)
@@ -368,6 +423,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
                     tp = current_price - risk * RISK_REWARD_RATIO
 
                 risk_pct = (risk / current_price * 100)
+                atr_val = calculate_atr(htf_candles_list, ATR_PERIOD)
 
                 ma_val = calculate_ma(htf_candles_list, MA_PERIOD)
                 trend_text = f"MA{MA_PERIOD}: {ma_val:.4g} ({'↑ Uptrend' if current_price > ma_val else '↓ Downtrend'})" if ma_val else "N/A"
@@ -379,7 +435,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
                         f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
                         f"Harga sekarang : {current_price}\n"
                         f"Zona           : {zone['bottom']} - {zone['top']}\n"
-                        f"🛑 Stop Loss   : {sl:.4g} ({SL_BUFFER_PERCENT}% buffer)\n"
+                        f"🛑 Stop Loss   : {sl:.4g} ({sl_method}, ATR{ATR_PERIOD}={atr_val:.4g if atr_val else 'N/A'})\n"
                         f"🎯 Take Profit : {tp:.4g} (R:R 1:{RISK_REWARD_RATIO:.0f})\n"
                         f"⚠️ Risk        : {risk_pct:.2f}%\n"
                         f"📊 Trend ({htf}): {trend_text}\n"
@@ -933,7 +989,8 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             f"MA period: {MA_PERIOD}\n"
             f"Filter trend: {'Aktif' if USE_TREND_FILTER else 'Nonaktif'}\n"
             f"Min harga pair: ${MIN_PRICE_USD}\n"
-            f"SL buffer: {SL_BUFFER_PERCENT}%\n"
+            f"SL buffer fallback: {SL_BUFFER_PERCENT}%\n"
+            f"ATR period: {ATR_PERIOD} | ATR multiplier: {ATR_MULTIPLIER}x\n"
             f"Risk/Reward: 1:{RISK_REWARD_RATIO:.0f}\n"
             f"Break of Structure: {'Aktif' if REQUIRE_BOS else 'Nonaktif'}\n"
             f"Fair Value Gap: {'Aktif' if REQUIRE_FVG else 'Nonaktif'}\n"
