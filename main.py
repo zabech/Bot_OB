@@ -138,6 +138,40 @@ def ltf_shows_reaction(ltf_df: pd.DataFrame, zone: dict) -> bool:
     return ob_core.ltf_shows_reaction(ltf_df, zone)
 
 
+def interval_to_seconds(interval: str) -> int:
+    """Konversi string interval OKX ke detik."""
+    mapping = {
+        "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
+        "1H": 3600, "2H": 7200, "4H": 14400, "6H": 21600, "12H": 43200,
+        "1D": 86400, "1W": 604800,
+    }
+    return mapping.get(interval, 3600)
+
+
+def candle_is_closed(candles, interval: str) -> bool:
+    """
+    Cek apakah candle LTF terakhir sudah close (selesai).
+    Timestamp open candle terakhir + durasi interval = waktu close candle.
+    Kalau waktu sekarang >= waktu close → candle sudah selesai dan harga close valid.
+    Kalau belum, skip — harga masih bisa berubah sebelum candle tutup.
+    """
+    if not candles:
+        return False
+    try:
+        if isinstance(candles, list):
+            last_ts_ms = int(candles[-1]["ts"])
+        elif hasattr(candles, 'iloc'):
+            last_ts_ms = int(candles.iloc[-1]["ts"])
+        else:
+            return True  # tidak bisa cek, lewatkan filter
+        interval_ms = interval_to_seconds(interval) * 1000
+        candle_close_time_ms = last_ts_ms + interval_ms
+        now_ms = int(time.time() * 1000)
+        return now_ms >= candle_close_time_ms
+    except Exception:
+        return True  # kalau error, jangan blokir
+
+
 def merge_zone_state(old_zones: list, new_zones: list) -> list:
     return ob_core.merge_zone_state(old_zones, new_zones)
 
@@ -392,6 +426,11 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
 
                 price_in_zone = zone["bottom"] <= current_price <= zone["top"]
                 if not price_in_zone:
+                    continue
+
+                # Pastikan candle LTF terakhir sudah close sebelum konfirmasi
+                if not candle_is_closed(ltf_df, LTF):
+                    logger.info(f"[{symbol}] Candle LTF belum close, tunggu siklus berikutnya.")
                     continue
 
                 if not ltf_shows_reaction(ltf_df, zone):
