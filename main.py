@@ -768,12 +768,20 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
                         continue
 
                     seen_zones.add(zone_key)
-                    risk = abs(current_price - (zone["bottom"] if zone["type"] == "bullish" else zone["top"]))
+
+                    # SL berbasis ATR (sama persis dengan live)
+                    sl, _ = calculate_sl_with_atr(zone, current_price, window)
+                    risk = abs(current_price - sl)
                     if risk == 0:
                         continue
 
-                    target = current_price + risk * RISK_REWARD_RATIO if zone["type"] == "bullish" else current_price - risk * RISK_REWARD_RATIO
-                    invalidation = zone["bottom"] if zone["type"] == "bullish" else zone["top"]
+                    # TP berbasis R:R dari SL yang sudah dihitung ATR
+                    if zone["type"] == "bullish":
+                        target = current_price + risk * RISK_REWARD_RATIO
+                        invalidation = sl
+                    else:
+                        target = current_price - risk * RISK_REWARD_RATIO
+                        invalidation = sl
 
                     # Resolve trade ke depan
                     future = [c for c in ltf_list if c["ts"] > current_htf_ts][:200]
@@ -833,7 +841,7 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
             f"Unresolved   : {unresolved}\n"
             f"Win rate     : {win_rate} (dari {resolved} resolved)\n\n"
             f"Per timeframe:\n" + "\n".join(htf_lines) + "\n\n"
-            f"*Target pakai R:R 1:{RISK_REWARD_RATIO:.0f} (estimasi kasar)"
+            f"*SL berbasis ATR{ATR_PERIOD} × {ATR_MULTIPLIER} | TP R:R 1:{RISK_REWARD_RATIO:.0f}"
         )
 
     except Exception as e:
@@ -1161,11 +1169,18 @@ async def run_backtest_async(symbol: str, months: int) -> str:
                     if len(ltf_slice) < 3 or not ob_core.ltf_shows_reaction(ltf_slice, zone):
                         continue
                     seen_zones.add(zone_key)
-                    risk = abs(current_price - (zone["bottom"] if zone["type"] == "bullish" else zone["top"]))
+
+                    # SL berbasis ATR (sama persis dengan live)
+                    sl, _ = calculate_sl_with_atr(zone, current_price, window)
+                    risk = abs(current_price - sl)
                     if risk == 0:
                         continue
-                    target = current_price + risk * RISK_REWARD_RATIO if zone["type"] == "bullish" else current_price - risk * RISK_REWARD_RATIO
-                    invalidation = zone["bottom"] if zone["type"] == "bullish" else zone["top"]
+                    if zone["type"] == "bullish":
+                        target = current_price + risk * RISK_REWARD_RATIO
+                        invalidation = sl
+                    else:
+                        target = current_price - risk * RISK_REWARD_RATIO
+                        invalidation = sl
                     future = [c for c in ltf_list if c["ts"] > current_htf_ts][:200]
                     outcome = "unresolved"
                     for c in future:
@@ -1213,7 +1228,7 @@ async def run_backtest_async(symbol: str, months: int) -> str:
             f"Unresolved   : {unresolved}\n"
             f"Win rate     : {win_rate} ({resolved} resolved)\n\n"
             f"Per timeframe:\n" + "\n".join(htf_lines) + "\n\n"
-            f"*Target R:R 1:{RISK_REWARD_RATIO:.0f} (estimasi kasar)"
+            f"*SL berbasis ATR{ATR_PERIOD} × {ATR_MULTIPLIER} | TP R:R 1:{RISK_REWARD_RATIO:.0f}"
         )
     except Exception as e:
         return f"Gagal backtest {symbol}: {e}"
