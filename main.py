@@ -384,6 +384,9 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
         return False  # trade selesai, boleh sinyal baru
 
     return True  # trade masih aktif, blokir sinyal baru
+
+
+async def check_symbol(app, symbol: str) -> bool:
     """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF.
     Return True kalau berhasil dicek, False kalau gagal (untuk health tracking)."""
     global active_zones
