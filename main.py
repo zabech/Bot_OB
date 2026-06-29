@@ -120,13 +120,21 @@ def get_active_symbols() -> list:
     return top_pairs_cache["symbols"]
 
 
-def fetch_klines_df(symbol: str, interval: str, limit: int) -> pd.DataFrame:
-    return ob_core.fetch_klines_df(symbol, interval, limit)
+def fetch_klines_df(symbol: str, interval: str, limit: int):
+    """Fetch klines dan return sebagai list of dict (bukan DataFrame) untuk konsistensi."""
+    data = ob_core.fetch_klines_df(symbol, interval, limit)
+    # Selalu konversi ke list of dict agar tidak ada ambiguitas pandas Series
+    if hasattr(data, 'to_dict'):
+        return data.to_dict("records")
+    return data
 
 
-def detect_order_blocks(df, max_zones: int) -> list:
+def detect_order_blocks(candles, max_zones: int) -> list:
+    # Pastikan input selalu list of dict
+    if hasattr(candles, 'to_dict'):
+        candles = candles.to_dict("records")
     return ob_core.detect_order_blocks(
-        df, max_zones, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER,
+        candles, max_zones, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER,
         require_bos=REQUIRE_BOS,
         require_fvg=REQUIRE_FVG,
         mitigation_50pct=MITIGATION_50PCT,
@@ -134,8 +142,10 @@ def detect_order_blocks(df, max_zones: int) -> list:
     )
 
 
-def ltf_shows_reaction(ltf_df: pd.DataFrame, zone: dict) -> bool:
-    return ob_core.ltf_shows_reaction(ltf_df, zone)
+def ltf_shows_reaction(ltf_data, zone: dict) -> bool:
+    if hasattr(ltf_data, 'to_dict'):
+        ltf_data = ltf_data.to_dict("records")
+    return ob_core.ltf_shows_reaction(ltf_data, zone)
 
 
 def interval_to_seconds(interval: str) -> int:
@@ -216,15 +226,12 @@ def get_session_info() -> tuple:
         return ("Asia", "Rendah", "⭐")
 
 
-def calculate_atr(candles: list, period: int) -> Optional[float]:
-    """
-    Hitung ATR (Average True Range) dari list of dict candle.
-    True Range = max(high-low, |high-prev_close|, |low-prev_close|)
-    ATR = rata-rata True Range dalam N periode terakhir.
-    """
+def calculate_atr(candles, period: int) -> Optional[float]:
+    """Hitung ATR dari list of dict candle."""
+    if hasattr(candles, 'to_dict'):
+        candles = candles.to_dict("records")
     if len(candles) < period + 1:
         return None
-
     true_ranges = []
     for i in range(1, len(candles)):
         high = candles[i]["high"]
@@ -232,11 +239,19 @@ def calculate_atr(candles: list, period: int) -> Optional[float]:
         prev_close = candles[i - 1]["close"]
         tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
         true_ranges.append(tr)
-
     if len(true_ranges) < period:
         return None
-
     return sum(true_ranges[-period:]) / period
+
+
+def calculate_ma(candles, period: int) -> Optional[float]:
+    """Hitung Moving Average dari close price N candle terakhir."""
+    if hasattr(candles, 'to_dict'):
+        candles = candles.to_dict("records")
+    if len(candles) < period:
+        return None
+    closes = [c["close"] if isinstance(c, dict) else float(c["close"]) for c in candles[-period:]]
+    return sum(closes) / len(closes)
 
 
 def calculate_sl_with_atr(zone: dict, current_price: float,
@@ -285,14 +300,6 @@ def get_current_price(symbol: str) -> Optional[float]:
 def is_price_above_min(current_price: float) -> bool:
     """Return True kalau harga >= MIN_PRICE_USD (filter micro-price pair)."""
     return current_price >= MIN_PRICE_USD
-
-
-def calculate_ma(candles: list, period: int) -> Optional[float]:
-    """Hitung Moving Average dari close price N candle terakhir."""
-    if len(candles) < period:
-        return None
-    closes = [c["close"] if isinstance(c, dict) else float(c["close"]) for c in candles[-period:]]
-    return sum(closes) / len(closes)
 
 
 def trend_allows_zone(zone: dict, current_price: float, htf_candles) -> bool:
