@@ -1264,6 +1264,20 @@ async def on_startup(app):
     scheduler.start()
     logger.info(f"Scheduler AKTIF — cek tiap {CHECK_INTERVAL_MINUTES} menit.")
 
+    # Kirim notifikasi startup ke Telegram sebagai konfirmasi versi kode
+    try:
+        await app.bot.send_message(
+            chat_id=CHAT_ID,
+            text=(
+                f"🚀 Bot OB dimulai (versi terbaru)\n"
+                f"TOP_N_PAIRS={TOP_N_PAIRS} | HTF={HTF_LIST} | LTF={LTF}\n"
+                f"REQUIRE_BOS={REQUIRE_BOS} | IMPULSE={IMPULSE_MIN_PERCENT}%\n"
+                f"Scan pertama dimulai..."
+            )
+        )
+    except Exception as e:
+        logger.error(f"Gagal kirim notif startup: {e}")
+
     # Jalankan scan pertama LANGSUNG saat startup (tidak perlu tunggu interval pertama)
     logger.info("Menjalankan scan pertama saat startup...")
     await check_and_alert(app)
