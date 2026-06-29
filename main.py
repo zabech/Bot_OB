@@ -1239,6 +1239,14 @@ async def run_backtest_async(symbol: str, months: int) -> str:
 
 async def on_startup(app):
     """Dipanggil setelah event loop bot aktif — aman untuk start scheduler di sini."""
+    logger.info("=" * 50)
+    logger.info("BOT STARTUP — memulai inisialisasi scheduler...")
+    logger.info(f"CHECK_INTERVAL_MINUTES = {CHECK_INTERVAL_MINUTES}")
+    logger.info(f"TOP_N_PAIRS = {TOP_N_PAIRS}")
+    logger.info(f"HTF_LIST = {HTF_LIST}")
+    logger.info(f"LTF = {LTF}")
+    logger.info("=" * 50)
+
     scheduler = AsyncIOScheduler()
     scheduler.add_job(check_and_alert, "interval", minutes=CHECK_INTERVAL_MINUTES, args=[app])
     scheduler.add_job(
@@ -1247,8 +1255,12 @@ async def on_startup(app):
         args=[app],
     )
     scheduler.start()
-    logger.info(f"Scheduler dimulai, cek tiap {CHECK_INTERVAL_MINUTES} menit.")
-    logger.info(f"Ringkasan harian dijadwalkan jam {DAILY_SUMMARY_HOUR_UTC:02d}:{DAILY_SUMMARY_MINUTE_UTC:02d} UTC.")
+    logger.info(f"Scheduler AKTIF — cek tiap {CHECK_INTERVAL_MINUTES} menit.")
+
+    # Jalankan scan pertama LANGSUNG saat startup (tidak perlu tunggu interval pertama)
+    logger.info("Menjalankan scan pertama saat startup...")
+    await check_and_alert(app)
+    logger.info("Scan pertama selesai.")
 
 
 def main():
