@@ -432,25 +432,31 @@ async def check_symbol(app, symbol: str) -> bool:
 
             for zone in detected:
                 if zone["mitigated"]:
+                    logger.info(f"[{symbol}] Zona {zone['type']} {zone['bottom']}-{zone['top']} sudah mitigated, skip.")
                     continue
 
                 price_in_zone = zone["bottom"] <= current_price <= zone["top"]
                 if not price_in_zone:
                     continue
 
+                logger.info(f"[{symbol}] Harga {current_price} MASUK zona {zone['type']} {zone['bottom']}-{zone['top']} di {htf}. Cek filter lanjutan...")
+
                 # Pastikan candle LTF terakhir sudah close sebelum konfirmasi
                 if not candle_is_closed(ltf_df, LTF):
-                    logger.info(f"[{symbol}] Candle LTF belum close, tunggu siklus berikutnya.")
+                    logger.info(f"[{symbol}] BLOCKED — candle LTF belum close, tunggu siklus berikutnya.")
                     continue
 
                 if not ltf_shows_reaction(ltf_df, zone):
+                    logger.info(f"[{symbol}] BLOCKED — ltf_shows_reaction gagal (candle LTF tidak menunjukkan reaksi di zona).")
                     continue
 
                 # Filter 2: trend filter — arah zona harus searah MA50 HTF
                 if not trend_allows_zone(zone, current_price, htf_candles_list):
-                    logger.info(f"[{symbol}] Skip zona {zone['type']} — berlawanan dengan trend MA{MA_PERIOD}")
+                    logger.info(f"[{symbol}] BLOCKED — zona {zone['type']} berlawanan dengan trend MA{MA_PERIOD}.")
                     zone["mitigated"] = True
                     continue
+
+                logger.info(f"[{symbol}] LOLOS SEMUA FILTER — mengirim alert {zone['type']}!")
 
                 emoji = "🟢" if zone["type"] == "bullish" else "🔴"
                 label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
