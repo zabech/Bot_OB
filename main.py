@@ -977,10 +977,12 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             lines = ["💼 Trade Aktif\n"]
             for sym, t in active_trades.items():
                 emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
+                tp_str = f"{t['tp']:.4g}" if t.get("tp") is not None else "N/A"
+                sl_str = f"{t['sl']:.4g}" if t.get("sl") is not None else "N/A"
                 lines.append(
                     f"{emoji} {sym} ({t['htf']})\n"
                     f"   Entry: {t['entry']:.4g}\n"
-                    f"   SL: {t['sl']:.4g} | TP: {t['tp']:.4g}"
+                    f"   SL: {sl_str} | TP: {tp_str}"
                 )
             await query.edit_message_text(
                 "\n\n".join(lines),
