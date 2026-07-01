@@ -403,7 +403,7 @@ async def check_symbol(app, symbol: str) -> bool:
     try:
         ltf_df = fetch_klines_df(symbol, LTF, LOOKBACK_CANDLES)
         if hasattr(ltf_df, 'iloc'):
-            current_price = float(ltf_df.iloc[-1]["close"])
+            current_price = float(ltf_df[-1]["close"] if isinstance(ltf_df, list) else ltf_df.iloc[-1]["close"])
         else:
             current_price = float(ltf_df[-1]["close"])
 
@@ -546,7 +546,7 @@ async def check_open_alerts():
     for symbol in symbols_needed:
         try:
             df = fetch_klines_df(symbol, LTF, 2)
-            current_prices[symbol] = float(df.iloc[-1]["close"])
+            current_prices[symbol] = float(df[-1]["close"] if isinstance(df, list) else df.iloc[-1]["close"])
         except Exception as e:
             logger.warning(f"Gagal ambil harga terkini {symbol} untuk cek open alert: {e}")
 
@@ -645,7 +645,7 @@ async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
     symbol = args[0].upper()
     try:
         ltf_df = fetch_klines_df(symbol, LTF, LOOKBACK_CANDLES)
-        current_price = float(ltf_df.iloc[-1]["close"])
+        current_price = float(ltf_df[-1]["close"] if isinstance(ltf_df, list) else ltf_df.iloc[-1]["close"])
 
         lines = [f"Harga {symbol} sekarang: {current_price}\n"]
         for htf in HTF_LIST:
@@ -1096,7 +1096,7 @@ async def text_input_handler(update, context: ContextTypes.DEFAULT_TYPE):
         try:
             ltf_df = fetch_klines_df(text, LTF, LOOKBACK_CANDLES)
             if hasattr(ltf_df, 'iloc'):
-                current_price = float(ltf_df.iloc[-1]["close"])
+                current_price = float(ltf_df[-1]["close"] if isinstance(ltf_df, list) else ltf_df.iloc[-1]["close"])
             else:
                 current_price = float(ltf_df[-1]["close"])
             lines = [f"Harga {text} sekarang: {current_price}\n"]
