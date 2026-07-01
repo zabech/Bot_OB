@@ -1273,6 +1273,23 @@ async def on_startup(app):
     scheduler.start()
     logger.info(f"Scheduler AKTIF — cek tiap {CHECK_INTERVAL_MINUTES} menit.")
 
+    # Load active_trades dari database supaya tidak hilang setelah restart
+    try:
+        open_alerts = db.get_open_alerts()
+        for alert in open_alerts:
+            symbol = alert["symbol"]
+            if symbol not in active_trades:
+                active_trades[symbol] = {
+                    "entry": float(alert["entry_price"]),
+                    "sl": float(alert["invalidation"]),
+                    "tp": float(alert["target"]) if alert["target"] else None,
+                    "zone_type": alert["zone_type"],
+                    "htf": alert["htf"],
+                }
+        logger.info(f"Loaded {len(active_trades)} trade aktif dari database.")
+    except Exception as e:
+        logger.warning(f"Gagal load active_trades dari DB: {e}")
+
     # Kirim notifikasi startup ke Telegram sebagai konfirmasi versi kode
     try:
         await app.bot.send_message(
