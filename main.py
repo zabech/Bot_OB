@@ -1304,10 +1304,13 @@ async def on_startup(app):
     except Exception as e:
         logger.error(f"Gagal kirim notif startup: {e}")
 
-    # Jalankan scan pertama LANGSUNG saat startup (tidak perlu tunggu interval pertama)
+    # Jalankan scan pertama LANGSUNG saat startup
     logger.info("Menjalankan scan pertama saat startup...")
-    await check_and_alert(app)
-    logger.info("Scan pertama selesai.")
+    try:
+        await check_and_alert(app)
+        logger.info("Scan pertama selesai.")
+    except Exception as e:
+        logger.error(f"Scan pertama gagal: {e}")
 
 
 def main():
