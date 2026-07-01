@@ -479,6 +479,7 @@ async def check_symbol(app, symbol: str) -> bool:
 
                 risk_pct = (risk / current_price * 100)
                 atr_val = calculate_atr(htf_candles_list, ATR_PERIOD)
+                atr_str = f"{atr_val:.4g}" if atr_val else "N/A"
 
                 ma_val = calculate_ma(htf_candles_list, MA_PERIOD)
                 trend_text = f"MA{MA_PERIOD}: {ma_val:.4g} ({'↑ Uptrend' if current_price > ma_val else '↓ Downtrend'})" if ma_val else "N/A"
@@ -490,7 +491,7 @@ async def check_symbol(app, symbol: str) -> bool:
                         f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
                         f"Harga sekarang : {current_price}\n"
                         f"Zona           : {zone['bottom']} - {zone['top']}\n"
-                        f"🛑 Stop Loss   : {sl:.4g} ({sl_method}, ATR{ATR_PERIOD}={atr_val:.4g if atr_val else 'N/A'})\n"
+                        f"🛑 Stop Loss   : {sl:.4g} ({sl_method}, ATR{ATR_PERIOD}={atr_str})\n"
                         f"🎯 Take Profit : {tp:.4g} (R:R 1:{RISK_REWARD_RATIO:.0f})\n"
                         f"⚠️ Risk        : {risk_pct:.2f}%\n"
                         f"📊 Trend ({htf}): {trend_text}\n"
@@ -498,6 +499,7 @@ async def check_symbol(app, symbol: str) -> bool:
                     ),
                 )
                 zone["mitigated"] = True
+                logger.info(f"[{symbol}] Alert terkirim ke Telegram.")
 
                 # Simpan trade aktif — blokir sinyal baru sampai TP/SL tercapai
                 active_trades[symbol] = {
@@ -512,7 +514,8 @@ async def check_symbol(app, symbol: str) -> bool:
                     db.record_alert(
                         symbol=symbol, zone_type=zone["type"], htf=htf, ltf=LTF,
                         entry_price=current_price, zone_top=zone["top"], zone_bottom=zone["bottom"],
-                        invalidation=invalidation, target=target,
+                        invalidation=sl,
+                        target=tp,
                     )
                 except Exception as e:
                     logger.error(f"Gagal simpan alert ke database: {e}")
