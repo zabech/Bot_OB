@@ -109,6 +109,19 @@ def resolve_alert_by_symbol(symbol: str, status: str):
         conn.close()
 
 
+def update_alert_target(alert_id: int, target: float):
+    """Update nilai target (TP) untuk alert yang sebelumnya NULL."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE alerts SET target = %s WHERE id = %s AND target IS NULL;
+            """, (target, alert_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_stats():
     """Hitung ringkasan statistik: total alert, win rate, breakdown status."""
     conn = get_connection()
