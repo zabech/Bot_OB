@@ -974,16 +974,46 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
                 ]])
             )
         else:
-            lines = ["💼 Trade Aktif\n"]
+            lines = [f"💼 Trade Aktif ({len(active_trades)} pair)\n"]
             for sym, t in active_trades.items():
                 emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
                 tp_str = f"{t['tp']:.4g}" if t.get("tp") is not None else "N/A"
                 sl_str = f"{t['sl']:.4g}" if t.get("sl") is not None else "N/A"
+
+                # Ambil harga terkini untuk hitung PnL
+                try:
+                    price = get_current_price(sym)
+                    if price and t.get("entry"):
+                        entry = t["entry"]
+                        if t["zone_type"] == "bullish":
+                            pnl_pct = (price - entry) / entry * 100
+                        else:
+                            pnl_pct = (entry - price) / entry * 100
+                        pnl_emoji = "📈" if pnl_pct >= 0 else "📉"
+                        pnl_str = f"{pnl_emoji} {pnl_pct:+.2f}% (harga: {price:.4g})"
+
+                        # Status mendekati TP/SL
+                        status = ""
+                        if t.get("tp") and t.get("sl"):
+                            risk = abs(entry - t["sl"])
+                            if risk > 0:
+                                progress = abs(price - entry) / risk
+                                if pnl_pct > 0:
+                                    status = f" | {progress:.1f}R"
+                    else:
+                        pnl_str = "PnL: N/A"
+                        status = ""
+                except Exception:
+                    pnl_str = "PnL: gagal ambil harga"
+                    status = ""
+
                 lines.append(
                     f"{emoji} {sym} ({t['htf']})\n"
-                    f"   Entry: {t['entry']:.4g}\n"
-                    f"   SL: {sl_str} | TP: {tp_str}"
+                    f"   Entry : {t['entry']:.4g}\n"
+                    f"   SL    : {sl_str} | TP: {tp_str}\n"
+                    f"   PnL   : {pnl_str}{status}"
                 )
+
             await query.edit_message_text(
                 "\n\n".join(lines),
                 reply_markup=InlineKeyboardMarkup([[
