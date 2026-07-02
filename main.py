@@ -1311,13 +1311,35 @@ async def on_startup(app):
         for alert in open_alerts:
             symbol = alert["symbol"]
             if symbol not in active_trades:
+                entry = float(alert["entry_price"])
+                sl = float(alert["invalidation"])
+                zone_type = alert["zone_type"]
+
+                # Kalau TP tidak tersimpan di DB, hitung ulang dari R:R
+                if alert["target"]:
+                    tp = float(alert["target"])
+                else:
+                    risk = abs(entry - sl)
+                    if zone_type == "bullish":
+                        tp = entry + risk * RISK_REWARD_RATIO
+                    else:
+                        tp = entry - risk * RISK_REWARD_RATIO
+                    logger.info(f"[{symbol}] TP dihitung ulang: {tp:.4g} (entry={entry}, sl={sl}, R:R 1:{RISK_REWARD_RATIO:.0f})")
+
                 active_trades[symbol] = {
-                    "entry": float(alert["entry_price"]),
-                    "sl": float(alert["invalidation"]),
-                    "tp": float(alert["target"]) if alert["target"] else None,
-                    "zone_type": alert["zone_type"],
+                    "entry": entry,
+                    "sl": sl,
+                    "tp": tp,
+                    "zone_type": zone_type,
                     "htf": alert["htf"],
                 }
+
+                # Update DB kalau TP sebelumnya NULL
+                if not alert["target"]:
+                    try:
+                        db.update_alert_target(alert["id"], tp)
+                    except Exception:
+                        pass
         logger.info(f"Loaded {len(active_trades)} trade aktif dari database.")
     except Exception as e:
         logger.warning(f"Gagal load active_trades dari DB: {e}")
