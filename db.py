@@ -29,7 +29,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS alerts (
                     id SERIAL PRIMARY KEY,
                     symbol TEXT NOT NULL,
-                    zone_type TEXT NOT NULL,           -- 'bullish' atau 'bearish'
+                    zone_type TEXT NOT NULL,
                     htf TEXT NOT NULL,
                     ltf TEXT NOT NULL,
                     entry_price DOUBLE PRECISION NOT NULL,
@@ -37,10 +37,15 @@ def init_db():
                     zone_bottom DOUBLE PRECISION NOT NULL,
                     invalidation DOUBLE PRECISION NOT NULL,
                     target DOUBLE PRECISION,
+                    pnl_pct DOUBLE PRECISION,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    status TEXT NOT NULL DEFAULT 'open',  -- 'open', 'hit_target', 'invalidated'
+                    status TEXT NOT NULL DEFAULT 'open',
                     resolved_at TIMESTAMPTZ
                 );
+            """)
+            # Tambah kolom pnl_pct kalau belum ada (untuk tabel yang sudah dibuat sebelumnya)
+            cur.execute("""
+                ALTER TABLE alerts ADD COLUMN IF NOT EXISTS pnl_pct DOUBLE PRECISION;
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol);")
@@ -93,18 +98,41 @@ def resolve_alert(alert_id: int, status: str):
         conn.close()
 
 
-def resolve_alert_by_symbol(symbol: str, status: str):
-    """Tandai alert open terbaru untuk symbol ini sebagai selesai."""
+def resolve_alert_by_symbol(symbol: str, status: str, pnl_pct: float = None):
+    """Tandai alert open terbaru untuk symbol ini sebagai selesai, simpan PnL."""
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE alerts SET status = %s, resolved_at = now()
+                UPDATE alerts SET status = %s, resolved_at = now(), pnl_pct = %s
                 WHERE symbol = %s AND status = 'open'
                 ORDER BY created_at DESC
                 LIMIT 1;
-            """, (status, symbol))
+            """, (status, pnl_pct, symbol))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def get_pnl_summary():
+    """Hitung total dan rata-rata PnL dari semua trade yang sudah close."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT
+                    COUNT(*) as total_closed,
+                    SUM(CASE WHEN status = 'hit_target' THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN status = 'invalidated' THEN 1 ELSE 0 END) as losses,
+                    AVG(pnl_pct) as avg_pnl,
+                    SUM(pnl_pct) as total_pnl,
+                    MAX(pnl_pct) as best_trade,
+                    MIN(pnl_pct) as worst_trade
+                FROM alerts
+                WHERE status IN ('hit_target', 'invalidated')
+                AND pnl_pct IS NOT NULL;
+            """)
+            return cur.fetchone()
     finally:
         conn.close()
 
@@ -117,6 +145,22 @@ def update_alert_target(alert_id: int, target: float):
             cur.execute("""
                 UPDATE alerts SET target = %s WHERE id = %s AND target IS NULL;
             """, (target, alert_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_alert_sl(symbol: str, new_sl: float):
+    """Update SL (invalidation) untuk alert open terbaru — dipakai saat trailing stop."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE alerts SET invalidation = %s
+                WHERE symbol = %s AND status = 'open'
+                ORDER BY created_at DESC
+                LIMIT 1;
+            """, (new_sl, symbol))
         conn.commit()
     finally:
         conn.close()
