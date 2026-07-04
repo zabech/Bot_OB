@@ -331,66 +331,113 @@ def trend_allows_zone(zone: dict, current_price: float, htf_candles) -> bool:
 async def check_active_trade(app, symbol: str, current_price: float) -> bool:
     """
     Cek apakah trade aktif untuk pair ini sudah resolved (TP atau SL tercapai).
+    Juga menangani trailing stop: kalau harga mencapai +1R, SL digeser ke breakeven (entry).
     Return True kalau pair masih punya trade aktif yang belum selesai (tidak boleh sinyal baru).
     Return False kalau tidak ada trade aktif (boleh sinyal baru).
     """
     trade = active_trades.get(symbol)
     if not trade:
-        return False  # tidak ada trade aktif, boleh sinyal baru
+        return False
 
     sl = trade["sl"]
     tp = trade["tp"]
     zone_type = trade["zone_type"]
     entry = trade["entry"]
     htf = trade["htf"]
+    breakeven_triggered = trade.get("breakeven_triggered", False)
 
-    hit_tp = (zone_type == "bullish" and current_price >= tp) or \
-             (zone_type == "bearish" and current_price <= tp)
+    # Guard: kalau tp None, skip cek TP
+    if tp is None:
+        hit_tp = False
+    else:
+        hit_tp = (zone_type == "bullish" and current_price >= tp) or \
+                 (zone_type == "bearish" and current_price <= tp)
+
     hit_sl = (zone_type == "bullish" and current_price <= sl) or \
              (zone_type == "bearish" and current_price >= sl)
 
-    if hit_tp:
-        emoji = "✅"
+    # ── Trailing Stop: geser SL ke breakeven setelah +1R ──────────────
+    if not breakeven_triggered and tp is not None:
         risk = abs(entry - sl)
-        profit_pct = abs(tp - entry) / entry * 100
+        one_r_target = entry + risk if zone_type == "bullish" else entry - risk
+
+        reached_1r = (zone_type == "bullish" and current_price >= one_r_target) or \
+                     (zone_type == "bearish" and current_price <= one_r_target)
+
+        if reached_1r and abs(sl - entry) > entry * 0.0001:  # SL belum di breakeven
+            # Geser SL ke entry (breakeven)
+            active_trades[symbol]["sl"] = entry
+            active_trades[symbol]["breakeven_triggered"] = True
+            sl = entry  # update lokal juga
+
+            pnl_pct = abs(current_price - entry) / entry * 100
+            await app.bot.send_message(
+                chat_id=CHAT_ID,
+                text=(
+                    f"🔒 {symbol} SL DIGESER KE BREAKEVEN\n"
+                    f"Timeframe: {htf} | {zone_type.capitalize()}\n"
+                    f"Entry: {entry:.4g}\n"
+                    f"SL baru: {entry:.4g} (breakeven)\n"
+                    f"TP: {tp:.4g}\n"
+                    f"PnL saat ini: +{pnl_pct:.2f}% (+1R tercapai)"
+                )
+            )
+            try:
+                db.update_alert_sl(symbol, entry)
+            except Exception:
+                pass
+
+    if hit_tp:
+        risk = abs(entry - sl)
+        profit_pct = abs(current_price - entry) / entry * 100
         await app.bot.send_message(
             chat_id=CHAT_ID,
             text=(
-                f"{emoji} {symbol} TP TERCAPAI!\n"
+                f"✅ {symbol} TP TERCAPAI!\n"
                 f"Timeframe: {htf} | {zone_type.capitalize()}\n"
                 f"Entry: {entry:.4g} → TP: {tp:.4g}\n"
-                f"Profit: +{profit_pct:.2f}% (R:R 1:{RISK_REWARD_RATIO:.0f})\n\n"
+                f"Profit: +{profit_pct:.2f}%\n\n"
                 f"Pair kini terbuka untuk sinyal berikutnya."
             )
         )
         del active_trades[symbol]
         try:
-            db.resolve_alert_by_symbol(symbol, "hit_target")
+            profit_pct_final = abs(current_price - entry) / entry * 100
+            db.resolve_alert_by_symbol(symbol, "hit_target", pnl_pct=profit_pct_final)
         except Exception:
             pass
-        return False  # trade selesai, boleh sinyal baru
+        return False
 
     if hit_sl:
-        emoji = "❌"
-        loss_pct = abs(entry - sl) / entry * 100
+        # Hitung PnL aktual berdasarkan SL yang terkena (bisa breakeven atau SL awal)
+        if zone_type == "bullish":
+            pnl_pct = (sl - entry) / entry * 100
+        else:
+            pnl_pct = (entry - sl) / entry * 100
+
+        pnl_str = f"+{pnl_pct:.2f}% (breakeven)" if breakeven_triggered else f"-{abs(pnl_pct):.2f}%"
+        emoji = "⚖️" if breakeven_triggered else "❌"
+        label = "BREAKEVEN" if breakeven_triggered else "SL TERKENA"
+        status = "hit_target" if breakeven_triggered else "invalidated"
+
         await app.bot.send_message(
             chat_id=CHAT_ID,
             text=(
-                f"{emoji} {symbol} SL TERKENA!\n"
+                f"{emoji} {symbol} {label}!\n"
                 f"Timeframe: {htf} | {zone_type.capitalize()}\n"
                 f"Entry: {entry:.4g} → SL: {sl:.4g}\n"
-                f"Loss: -{loss_pct:.2f}%\n\n"
+                f"PnL: {pnl_str}\n\n"
                 f"Pair kini terbuka untuk sinyal berikutnya."
             )
         )
         del active_trades[symbol]
         try:
-            db.resolve_alert_by_symbol(symbol, "invalidated")
+            db.resolve_alert_by_symbol(symbol, status, pnl_pct=pnl_pct)
         except Exception:
             pass
-        return False  # trade selesai, boleh sinyal baru
+        return False
 
-    return True  # trade masih aktif, blokir sinyal baru
+    return True
 
 
 async def check_symbol(app, symbol: str) -> bool:
@@ -665,8 +712,8 @@ async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Gagal ambil data untuk {symbol}: {e}")
 
 
-def format_stats_text(stats: dict, title: str) -> str:
-    """Format dict statistik jadi teks pesan Telegram, dipakai untuk /stats dan ringkasan harian."""
+def format_stats_text(stats: dict, title: str, pnl: dict = None) -> str:
+    """Format dict statistik jadi teks pesan Telegram."""
     win_rate_text = f"{stats['win_rate']:.1f}%" if stats["win_rate"] is not None else "belum ada data selesai"
 
     lines = [
@@ -677,6 +724,13 @@ def format_stats_text(stats: dict, title: str) -> str:
         f"Invalidasi: {stats['invalidated']}",
         f"Win rate: {win_rate_text}",
     ]
+
+    if pnl and pnl.get("total_closed"):
+        lines.append("\n💰 Ringkasan PnL (trade selesai):")
+        lines.append(f"  Total PnL   : {pnl['total_pnl']:+.2f}%")
+        lines.append(f"  Rata-rata   : {pnl['avg_pnl']:+.2f}% per trade")
+        lines.append(f"  Trade terbaik: {pnl['best_trade']:+.2f}%")
+        lines.append(f"  Trade terburuk: {pnl['worst_trade']:+.2f}%")
 
     if stats["top_pairs"]:
         lines.append("\n🔝 Pair paling sering alert:")
@@ -689,22 +743,25 @@ def format_stats_text(stats: dict, title: str) -> str:
 async def stats_now(update, context: ContextTypes.DEFAULT_TYPE):
     try:
         stats = db.get_stats()
+        pnl = db.get_pnl_summary()
     except Exception as e:
         await update.message.reply_text(f"Gagal ambil statistik dari database: {e}")
         return
-
-    await update.message.reply_text(format_stats_text(stats, "📈 Statistik Alert Order Block (semua waktu)"))
+    await update.message.reply_text(
+        format_stats_text(stats, "📈 Statistik Alert Order Block (semua waktu)", pnl)
+    )
 
 
 async def send_daily_summary(app):
     """Kirim ringkasan statistik 24 jam terakhir ke Telegram, dijadwalkan 1x sehari."""
     try:
         stats = db.get_daily_stats()
+        pnl = db.get_pnl_summary()
     except Exception as e:
         logger.error(f"Gagal ambil statistik harian: {e}")
         return
 
-    text = format_stats_text(stats, "🗓️ Ringkasan Harian (24 jam terakhir)")
+    text = format_stats_text(stats, "🗓️ Ringkasan Harian (24 jam terakhir)", pnl)
     try:
         await app.bot.send_message(chat_id=CHAT_ID, text=text)
         logger.info("Ringkasan harian terkirim.")
@@ -1024,8 +1081,9 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "mon_stats":
         try:
             stats = db.get_stats()
+            pnl = db.get_pnl_summary()
             await query.edit_message_text(
-                format_stats_text(stats, "📈 Statistik Alert (semua waktu)"),
+                format_stats_text(stats, "📈 Statistik Alert (semua waktu)", pnl),
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🔄 Refresh", callback_data="mon_stats")
                 ]])
@@ -1036,8 +1094,9 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "mon_daily":
         try:
             stats = db.get_daily_stats()
+            pnl = db.get_pnl_summary()
             await query.edit_message_text(
-                format_stats_text(stats, "🗓️ Ringkasan 24 Jam Terakhir"),
+                format_stats_text(stats, "🗓️ Ringkasan 24 Jam Terakhir", pnl),
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🔄 Refresh", callback_data="mon_daily")
                 ]])
