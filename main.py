@@ -134,9 +134,9 @@ def fetch_klines_df(symbol: str, interval: str, limit: int):
 def detect_order_blocks(candles, max_zones: int) -> list:
     # Di detect_order_blocks, setelah hitung ATR
     if atr is not None:
-    logger.info(f"ATR untuk {len(candles)} candle: {atr:.4f}, threshold: {atr * impulse_atr_multiplier:.4f}")
+        logger.info(f"ATR untuk {len(candles)} candle: {atr:.4f}, threshold: {atr * impulse_atr_multiplier:.4f}")
     else:
-    logger.info("ATR tidak tersedia, menggunakan fixed impulse_min_percent")
+        logger.info("ATR tidak tersedia, menggunakan fixed impulse_min_percent")
     
     # Pastikan input selalu list of dict
     if hasattr(candles, 'to_dict'):
