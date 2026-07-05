@@ -25,6 +25,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 USE_ATR_IMPULSE = os.environ.get("USE_ATR_IMPULSE", "true").lower() == "true"
 IMPULSE_ATR_MULTIPLIER = float(os.environ.get("IMPULSE_ATR_MULTIPLIER", 1.5))
+USE_MEDIAN_VOLUME = os.environ.get("USE_MEDIAN_VOLUME", "true").lower() == "true"
 
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", 15))
 
