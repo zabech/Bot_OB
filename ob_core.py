@@ -253,6 +253,24 @@ def calculate_atr(candles: list, period: int = 14) -> Optional[float]:
     
     return sum(true_ranges[-period:]) / period
 
+def calculate_volume_threshold(candles: list, multiplier: float = 1.2) -> float:
+    """
+    Hitung threshold volume menggunakan MEDIAN (lebih robust dari average).
+    """
+    if not candles:
+        return 0.0
+    
+    volumes = sorted([c["vol"] for c in candles])
+    n = len(volumes)
+    
+    if n % 2 == 0:
+        median_vol = (volumes[n // 2 - 1] + volumes[n // 2]) / 2
+    else:
+        median_vol = volumes[n // 2]
+    
+    return median_vol * multiplier
+
+
 def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                          volume_multiplier: float,
                          require_bos: bool = True,
@@ -263,11 +281,13 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                          impulse_atr_multiplier: float = 1.5) -> list:
     """
     Deteksi order block dengan filter kualitas lengkap.
-    
-    Parameter baru:
-    - use_atr_impulse: gunakan ATR-based impulse (default True)
-    - impulse_atr_multiplier: multiplier untuk ATR (default 1.5)
     """
+    if use_median_volume:
+        volume_threshold = calculate_volume_threshold(candles, volume_multiplier)
+    else:
+        avg_vol = sum(c["vol"] for c in candles) / n
+        volume_threshold = avg_vol * volume_multiplier
+    
     # Normalisasi ke list of dict
     if HAS_PANDAS and hasattr(data, 'iterrows'):
         candles = data.to_dict("records")
@@ -278,15 +298,19 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
     n = len(candles)
     if n == 0:
         return []
-
-    avg_vol = sum(c["vol"] for c in candles) / n
+    
+    # Gunakan MEDIAN volume (bukan average)
+    volume_threshold = calculate_volume_threshold(candles, volume_multiplier)
+    logger.info(f"Volume threshold (median × {volume_multiplier}): {volume_threshold:.2f}")
     
     # Hitung ATR sekali untuk seluruh data
     atr = None
     if use_atr_impulse:
         atr = calculate_atr(candles, 14)
-        if atr is None:
-            logger.warning("ATR tidak tersedia, fallback ke impulse_min_percent")
+        if atr is not None:
+            logger.info(f"ATR untuk {len(candles)} candle: {atr:.4f}, threshold: {atr * impulse_atr_multiplier:.4f}")
+        else:
+            logger.info("ATR tidak tersedia, menggunakan fixed impulse_min_percent")
 
     for i in range(n - 3):
         c = candles[i]
@@ -296,11 +320,11 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
         future = candles[i + 1:i + 4]
         if not future:
             continue
-
-        # Filter 1: Volume
-        if c["vol"] < avg_vol * volume_multiplier:
+        
+        # Filter 1: Volume (pakai median threshold)
+        if c["vol"] < volume_threshold:
             continue
-
+        
         zone_top = c["high"]
         zone_bottom = c["low"]
 
