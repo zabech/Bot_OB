@@ -1042,22 +1042,23 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text)
 
     elif data == "mon_trades":
-    if not active_trades:
+        if not active_trades:
         await query.edit_message_text(
             "💼 Trade Aktif\n\nTidak ada trade aktif saat ini.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
             ]])
         )
-    else:
-        # ── Ringkasan singkat ──
-        total_trades = len(active_trades)
-        bullish_count = sum(1 for t in active_trades.values() if t["zone_type"] == "bullish")
-        bearish_count = total_trades - bullish_count
-        
-        # Hitung total PnL
-        total_pnl = 0.0
-        pnl_count = 0
+        else:
+            # ── Ringkasan singkat ──
+            total_trades = len(active_trades)
+            bullish_count = sum(1 for t in active_trades.values() if t["zone_type"] == "bullish")
+            bearish_count = total_trades - bullish_count
+            
+            # Hitung total PnL
+    
+            total_pnl = 0.0
+            pnl_count = 0
         for sym, t in active_trades.items():
             try:
                 price = get_current_price(sym)
