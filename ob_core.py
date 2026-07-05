@@ -232,26 +232,41 @@ def _is_mitigated_50pct(candles: list, ob_index: int, zone_top: float,
     else:
         return any(c["close"] > midpoint for c in after)
 
+def calculate_atr(candles: list, period: int = 14) -> Optional[float]:
+    """
+    Hitung ATR (Average True Range) dari data candlestick.
+    Return None jika data tidak cukup.
+    """
+    if len(candles) < period + 1:
+        return None
+    
+    true_ranges = []
+    for i in range(1, len(candles)):
+        high = candles[i]["high"]
+        low = candles[i]["low"]
+        prev_close = candles[i-1]["close"]
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        true_ranges.append(tr)
+    
+    if len(true_ranges) < period:
+        return None
+    
+    return sum(true_ranges[-period:]) / period
 
 def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                          volume_multiplier: float,
                          require_bos: bool = True,
                          require_fvg: bool = False,
                          mitigation_50pct: bool = True,
-                         swing_lookback: int = 10) -> list:
+                         swing_lookback: int = 10,
+                         use_atr_impulse: bool = True,
+                         impulse_atr_multiplier: float = 1.5) -> list:
     """
-    Deteksi order block dengan filter kualitas lengkap:
-    1. Volume    : candle OB >= volume_multiplier x rata-rata
-    2. Impulse   : pergerakan minimal impulse_min_percent dalam 3 candle ke depan
-    3. BoS       : harga harus menebus swing high/low sebelum OB (bukti momentum)
-    4. FVG       : ada Fair Value Gap di dekat OB (konfirmasi imbalance, opsional)
-    5. Mitigation: OB dibuang kalau 50% zona sudah ditembus (bukan seluruh zona)
-
-    Parameter:
-    - require_bos   : wajib ada Break of Structure (default True)
-    - require_fvg   : wajib ada Fair Value Gap (default False, lebih selektif tapi lebih sedikit sinyal)
-    - mitigation_50pct: pakai aturan 50% untuk mitigasi (default True)
-    - swing_lookback: jumlah candle ke belakang untuk cari swing high/low
+    Deteksi order block dengan filter kualitas lengkap.
+    
+    Parameter baru:
+    - use_atr_impulse: gunakan ATR-based impulse (default True)
+    - impulse_atr_multiplier: multiplier untuk ATR (default 1.5)
     """
     # Normalisasi ke list of dict
     if HAS_PANDAS and hasattr(data, 'iterrows'):
@@ -265,6 +280,13 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
         return []
 
     avg_vol = sum(c["vol"] for c in candles) / n
+    
+    # Hitung ATR sekali untuk seluruh data
+    atr = None
+    if use_atr_impulse:
+        atr = calculate_atr(candles, 14)
+        if atr is None:
+            logger.warning("ATR tidak tersedia, fallback ke impulse_min_percent")
 
     for i in range(n - 3):
         c = candles[i]
@@ -284,9 +306,16 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
 
         if is_bearish:
             max_high_future = max(f["high"] for f in future)
-            move_pct = (max_high_future - c["close"]) / c["close"] * 100
-            if move_pct < impulse_min_percent:
-                continue
+            impulse = max_high_future - c["close"]
+            
+            # Filter 2: Impulse (ATR-based atau fixed)
+            if use_atr_impulse and atr is not None:
+                if impulse < atr * impulse_atr_multiplier:
+                    continue
+            else:
+                move_pct = impulse / c["close"] * 100
+                if move_pct < impulse_min_percent:
+                    continue
 
             ob_type = "bullish"
             impulse_end = i + 3
@@ -314,9 +343,16 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
 
         if is_bullish:
             min_low_future = min(f["low"] for f in future)
-            move_pct = (c["close"] - min_low_future) / c["close"] * 100
-            if move_pct < impulse_min_percent:
-                continue
+            impulse = c["close"] - min_low_future
+            
+            # Filter 2: Impulse (ATR-based atau fixed)
+            if use_atr_impulse and atr is not None:
+                if impulse < atr * impulse_atr_multiplier:
+                    continue
+            else:
+                move_pct = impulse / c["close"] * 100
+                if move_pct < impulse_min_percent:
+                    continue
 
             ob_type = "bearish"
             impulse_end = i + 3
@@ -345,25 +381,60 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
     zones.sort(key=lambda z: z["index"], reverse=True)
     return zones[:max_zones]
 
-
-def ltf_shows_reaction(ltf_data, zone: dict) -> bool:
-    """Cek reaksi LTF. Menerima DataFrame atau list of dict."""
+def ltf_shows_reaction_advanced(ltf_data, zone: dict) -> bool:
+    """
+    Deteksi reaksi yang lebih kuat:
+    - Bullish: bullish engulfing, hammer, pin bar, atau volume spike 2x rata-rata
+    - Bearish: bearish engulfing, shooting star, atau volume spike 2x rata-rata
+    """
     if HAS_PANDAS and hasattr(ltf_data, 'tail'):
-        recent = ltf_data.tail(3).to_dict("records")
+        recent = ltf_data.tail(5).to_dict("records")
     else:
-        recent = ltf_data[-3:]
-
-    for c in recent:
+        recent = ltf_data[-5:]
+    
+    if len(recent) < 3:
+        return False
+    
+    avg_vol = sum(c["vol"] for c in recent) / len(recent)
+    
+    for i in range(1, len(recent)):
+        c = recent[i]
+        prev = recent[i-1]
         in_zone = (zone["bottom"] <= c["close"] <= zone["top"] or
                    zone["bottom"] <= c["open"] <= zone["top"])
         if not in_zone:
             continue
-        if zone["type"] == "bullish" and c["close"] > c["open"]:
-            return True
-        if zone["type"] == "bearish" and c["close"] < c["open"]:
-            return True
+        
+        # Volume spike
+        volume_spike = c["vol"] > avg_vol * 2.0
+        
+        if zone["type"] == "bullish":
+            # Bullish engulfing
+            is_engulfing = c["open"] < prev["close"] and c["close"] > prev["open"]
+            # Hammer (body kecil, shadow bawah panjang)
+            body = abs(c["close"] - c["open"])
+            lower_shadow = min(c["open"], c["close"]) - c["low"]
+            is_hammer = lower_shadow > body * 2
+            # Pin bar (body kecil, shadow atas/bawah panjang)
+            is_pin_bar = lower_shadow > body * 2 or (c["high"] - max(c["open"], c["close"])) > body * 2
+            
+            if is_engulfing or is_hammer or is_pin_bar or volume_spike:
+                return True
+        
+        if zone["type"] == "bearish":
+            # Bearish engulfing
+            is_engulfing = c["open"] > prev["close"] and c["close"] < prev["open"]
+            # Shooting star (body kecil, shadow atas panjang)
+            body = abs(c["close"] - c["open"])
+            upper_shadow = c["high"] - max(c["open"], c["close"])
+            is_shooting_star = upper_shadow > body * 2
+            # Pin bar
+            is_pin_bar = upper_shadow > body * 2 or (min(c["open"], c["close"]) - c["low"]) > body * 2
+            
+            if is_engulfing or is_shooting_star or is_pin_bar or volume_spike:
+                return True
+    
     return False
-
 
 def merge_zone_state(old_zones: list, new_zones: list) -> list:
     for new_zone in new_zones:
@@ -411,3 +482,4 @@ def calculate_risk_reward(zone: dict, current_price: float, target: Optional[flo
     reward = abs(target - current_price)
     ratio = reward / risk
     return f"1:{ratio:.1f}"
+
