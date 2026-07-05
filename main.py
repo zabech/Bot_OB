@@ -136,18 +136,12 @@ def detect_order_blocks(candles, max_zones: int) -> list:
     if hasattr(candles, 'to_dict'):
         candles = candles.to_dict("records")
     return ob_core.detect_order_blocks(
-        htf_df,
-        MAX_ACTIVE_ZONES_PER_TF,
-        IMPULSE_MIN_PERCENT,
-        VOLUME_MULTIPLIER,
+        candles, max_zones, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER,
         require_bos=REQUIRE_BOS,
         require_fvg=REQUIRE_FVG,
         mitigation_50pct=MITIGATION_50PCT,
         swing_lookback=SWING_LOOKBACK,
-        use_atr_impulse=USE_ATR_IMPULSE,
-        impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER
     )
-
 
 def ltf_shows_reaction(ltf_data, zone: dict) -> bool:
     if hasattr(ltf_data, 'to_dict'):
