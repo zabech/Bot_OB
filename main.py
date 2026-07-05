@@ -132,6 +132,12 @@ def fetch_klines_df(symbol: str, interval: str, limit: int):
 
 
 def detect_order_blocks(candles, max_zones: int) -> list:
+    # Di detect_order_blocks, setelah hitung ATR
+    if atr is not None:
+    logger.info(f"ATR untuk {len(candles)} candle: {atr:.4f}, threshold: {atr * impulse_atr_multiplier:.4f}")
+    else:
+    logger.info("ATR tidak tersedia, menggunakan fixed impulse_min_percent")
+    
     # Pastikan input selalu list of dict
     if hasattr(candles, 'to_dict'):
         candles = candles.to_dict("records")
@@ -769,7 +775,6 @@ async def send_daily_summary(app):
     except Exception as e:
         logger.error(f"Gagal kirim ringkasan harian: {e}")
 
-
 async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
     """
     /backtest                    -> BTC-USDT-SWAP, 1 bulan
@@ -780,7 +785,7 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
     symbol = args[0].upper() if args else "BTC-USDT-SWAP"
     try:
         months = int(args[1]) if len(args) >= 2 else 1
-        months = max(1, min(months, 6))  # batasi 1-6 bulan
+        months = max(1, min(months, 6))
     except ValueError:
         await update.message.reply_text("Format: /backtest SYMBOL BULAN\nContoh: /backtest BTC-USDT-SWAP 3")
         return
@@ -798,7 +803,6 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
         end_ts_ms = int(time.time() * 1000)
         start_ts_ms = int((datetime.now(timezone.utc) - timedelta(days=months * 30)).timestamp() * 1000)
 
-        # Ambil data historis LTF
         ltf_candles = ob_core.fetch_full_history(symbol, LTF, start_ts_ms, end_ts_ms)
         if hasattr(ltf_candles, 'to_dict'):
             ltf_list = ltf_candles.to_dict("records")
@@ -824,7 +828,22 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
 
             for end_idx in range(LOOKBACK_CANDLES, len(htf_list)):
                 window = htf_list[end_idx - LOOKBACK_CANDLES:end_idx]
-                zones = ob_core.detect_order_blocks(window, MAX_ACTIVE_ZONES_PER_TF, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER)
+                
+                # ⬇️ UPDATE DI SINI ⬇️
+                zones = ob_core.detect_order_blocks(
+                    window, 
+                    MAX_ACTIVE_ZONES_PER_TF, 
+                    IMPULSE_MIN_PERCENT, 
+                    VOLUME_MULTIPLIER,
+                    require_bos=REQUIRE_BOS,
+                    require_fvg=REQUIRE_FVG,
+                    mitigation_50pct=MITIGATION_50PCT,
+                    swing_lookback=SWING_LOOKBACK,
+                    use_atr_impulse=USE_ATR_IMPULSE,
+                    impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER
+                )
+                # ⬆️ UPDATE DI SINI ⬆️
+                
                 if not zones:
                     continue
 
@@ -846,13 +865,12 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
 
                     seen_zones.add(zone_key)
 
-                    # SL berbasis ATR (sama persis dengan live)
+                    # SL berbasis ATR
                     sl, _ = calculate_sl_with_atr(zone, current_price, window)
                     risk = abs(current_price - sl)
                     if risk == 0:
                         continue
 
-                    # TP berbasis R:R dari SL yang sudah dihitung ATR
                     if zone["type"] == "bullish":
                         target = current_price + risk * RISK_REWARD_RATIO
                         invalidation = sl
@@ -860,7 +878,6 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
                         target = current_price - risk * RISK_REWARD_RATIO
                         invalidation = sl
 
-                    # Resolve trade ke depan
                     future = [c for c in ltf_list if c["ts"] > current_htf_ts][:200]
                     outcome = "unresolved"
                     for c in future:
@@ -880,7 +897,7 @@ async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
                                 break
 
                     all_results.append({"htf": htf, "zone_type": zone["type"], "outcome": outcome})
-
+        
         # Buat ringkasan
         total = len(all_results)
         if total == 0:
@@ -1239,7 +1256,6 @@ async def text_input_handler(update, context: ContextTypes.DEFAULT_TYPE):
         # Bukan input yang ditunggu, abaikan (menu router yang handle)
         pass
 
-
 async def run_backtest_async(symbol: str, months: int) -> str:
     """Jalankan backtest dan return teks hasil — dipakai oleh inline callback dan command."""
     try:
@@ -1264,7 +1280,22 @@ async def run_backtest_async(symbol: str, months: int) -> str:
 
             for end_idx in range(LOOKBACK_CANDLES, len(htf_list_bt)):
                 window = htf_list_bt[end_idx - LOOKBACK_CANDLES:end_idx]
-                zones = ob_core.detect_order_blocks(window, MAX_ACTIVE_ZONES_PER_TF, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER)
+                
+                # ⬇️ UPDATE DI SINI ⬇️
+                zones = ob_core.detect_order_blocks(
+                    window, 
+                    MAX_ACTIVE_ZONES_PER_TF, 
+                    IMPULSE_MIN_PERCENT, 
+                    VOLUME_MULTIPLIER,
+                    require_bos=REQUIRE_BOS,
+                    require_fvg=REQUIRE_FVG,
+                    mitigation_50pct=MITIGATION_50PCT,
+                    swing_lookback=SWING_LOOKBACK,
+                    use_atr_impulse=USE_ATR_IMPULSE,
+                    impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER
+                )
+                # ⬆️ UPDATE DI SINI ⬆️
+                
                 if not zones:
                     continue
                 current_htf_ts = htf_list_bt[end_idx]["ts"]
@@ -1281,7 +1312,7 @@ async def run_backtest_async(symbol: str, months: int) -> str:
                         continue
                     seen_zones.add(zone_key)
 
-                    # SL berbasis ATR (sama persis dengan live)
+                    # SL berbasis ATR
                     sl, _ = calculate_sl_with_atr(zone, current_price, window)
                     risk = abs(current_price - sl)
                     if risk == 0:
@@ -1306,7 +1337,7 @@ async def run_backtest_async(symbol: str, months: int) -> str:
                             if c["high"] >= invalidation:
                                 outcome = "loss"; break
                     all_results.append({"htf": htf, "zone_type": zone["type"], "outcome": outcome})
-
+        
         if not all_results:
             return f"Backtest {symbol} ({months} bln): tidak ada sinyal."
 
