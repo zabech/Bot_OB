@@ -23,6 +23,8 @@ WAITING_MONTHS_BACKTEST = 3
 # ── Konfigurasi ──────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+USE_ATR_IMPULSE = os.environ.get("USE_ATR_IMPULSE", "true").lower() == "true"
+IMPULSE_ATR_MULTIPLIER = float(os.environ.get("IMPULSE_ATR_MULTIPLIER", 1.5))
 
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", 15))
 
@@ -134,11 +136,16 @@ def detect_order_blocks(candles, max_zones: int) -> list:
     if hasattr(candles, 'to_dict'):
         candles = candles.to_dict("records")
     return ob_core.detect_order_blocks(
-        candles, max_zones, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER,
+        htf_df,
+        MAX_ACTIVE_ZONES_PER_TF,
+        IMPULSE_MIN_PERCENT,
+        VOLUME_MULTIPLIER,
         require_bos=REQUIRE_BOS,
         require_fvg=REQUIRE_FVG,
         mitigation_50pct=MITIGATION_50PCT,
         swing_lookback=SWING_LOOKBACK,
+        use_atr_impulse=USE_ATR_IMPULSE,
+        impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER
     )
 
 
