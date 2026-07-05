@@ -1043,12 +1043,12 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "mon_trades":
         if not active_trades:
-        await query.edit_message_text(
-            "💼 Trade Aktif\n\nTidak ada trade aktif saat ini.",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
-            ]])
-        )
+            await query.edit_message_text(
+                "💼 Trade Aktif\n\nTidak ada trade aktif saat ini.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
+                ]])
+            )
         else:
             # ── Ringkasan singkat ──
             total_trades = len(active_trades)
@@ -1056,95 +1056,92 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             bearish_count = total_trades - bullish_count
             
             # Hitung total PnL
-    
             total_pnl = 0.0
             pnl_count = 0
-        for sym, t in active_trades.items():
-            try:
-                price = get_current_price(sym)
-                if price and t.get("entry"):
-                    entry = t["entry"]
-                    if t["zone_type"] == "bullish":
-                        pnl = (price - entry) / entry * 100
-                    else:
-                        pnl = (entry - price) / entry * 100
-                    total_pnl += pnl
-                    pnl_count += 1
-            except Exception:
-                pass
-        
-        avg_pnl = total_pnl / pnl_count if pnl_count > 0 else 0
-        
-        # ── Buat pesan ringkasan ──
-        lines = [
-            f"💼 Trade Aktif ({total_trades} pair)",
-            f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}",
-            f"📊 Rata-rata PnL: {avg_pnl:+.2f}%",
-            "",
-            "📋 Daftar trade terbaru (max 10):",
-        ]
-        
-        # Tampilkan maksimal 10 trade (paling baru berdasarkan entry time)
-        # Catatan: active_trades tidak menyimpan timestamp, jadi kita pakai urutan existing
-        count = 0
-        for sym, t in list(active_trades.items())[:10]:  # ambil 10 pertama
-            count += 1
-            emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
+            for sym, t in active_trades.items():
+                try:
+                    price = get_current_price(sym)
+                    if price and t.get("entry"):
+                        entry = t["entry"]
+                        if t["zone_type"] == "bullish":
+                            pnl = (price - entry) / entry * 100
+                        else:
+                            pnl = (entry - price) / entry * 100
+                        total_pnl += pnl
+                        pnl_count += 1
+                except Exception:
+                    pass
             
-            # Ambil harga terkini untuk hitung PnL
-            pnl_str = "N/A"
-            status = ""
-            try:
-                price = get_current_price(sym)
-                if price and t.get("entry"):
-                    entry = t["entry"]
-                    if t["zone_type"] == "bullish":
-                        pnl = (price - entry) / entry * 100
-                    else:
-                        pnl = (entry - price) / entry * 100
-                    pnl_emoji = "📈" if pnl >= 0 else "📉"
-                    pnl_str = f"{pnl_emoji} {pnl:+.1f}%"
-                    
-                    # Status progress ke TP/SL
-                    if t.get("tp") and t.get("sl") and abs(t["sl"] - entry) > 0:
-                        risk = abs(entry - t["sl"])
-                        progress = abs(price - entry) / risk
-                        status = f" ({progress:.1f}R)"
-            except Exception:
-                pass
+            avg_pnl = total_pnl / pnl_count if pnl_count > 0 else 0
             
-            # Format singkat per trade
-            tp_str = f"{t['tp']:.2f}" if t.get("tp") else "N/A"
-            sl_str = f"{t['sl']:.2f}" if t.get("sl") else "N/A"
-            lines.append(
-                f"{count}. {emoji} {sym} ({t['htf']}) | "
-                f"PnL: {pnl_str}{status} | "
-                f"SL: {sl_str} | TP: {tp_str}"
+            # ── Buat pesan ringkasan ──
+            lines = [
+                f"💼 Trade Aktif ({total_trades} pair)",
+                f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}",
+                f"📊 Rata-rata PnL: {avg_pnl:+.2f}%",
+                "",
+                "📋 Daftar trade terbaru (max 10):",
+            ]
+            
+            # Tampilkan maksimal 10 trade
+            count = 0
+            for sym, t in list(active_trades.items())[:10]:
+                count += 1
+                emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
+                
+                # Ambil harga terkini untuk hitung PnL
+                pnl_str = "N/A"
+                status = ""
+                try:
+                    price = get_current_price(sym)
+                    if price and t.get("entry"):
+                        entry = t["entry"]
+                        if t["zone_type"] == "bullish":
+                            pnl = (price - entry) / entry * 100
+                        else:
+                            pnl = (entry - price) / entry * 100
+                        pnl_emoji = "📈" if pnl >= 0 else "📉"
+                        pnl_str = f"{pnl_emoji} {pnl:+.1f}%"
+                        
+                        # Status progress ke TP/SL
+                        if t.get("tp") and t.get("sl") and abs(t["sl"] - entry) > 0:
+                            risk = abs(entry - t["sl"])
+                            progress = abs(price - entry) / risk
+                            status = f" ({progress:.1f}R)"
+                except Exception:
+                    pass
+                
+                # Format singkat per trade
+                tp_str = f"{t['tp']:.2f}" if t.get("tp") else "N/A"
+                sl_str = f"{t['sl']:.2f}" if t.get("sl") else "N/A"
+                lines.append(
+                    f"{count}. {emoji} {sym} ({t['htf']}) | "
+                    f"PnL: {pnl_str}{status} | "
+                    f"SL: {sl_str} | TP: {tp_str}"
+                )
+            
+            # Tambahkan info jika ada lebih dari 10
+            if total_trades > 10:
+                lines.append(f"\n... dan {total_trades - 10} trade lainnya (gunakan /stats untuk detail)")
+            
+            text = "\n".join(lines)
+            
+            # ── Kirim dengan pagination jika masih terlalu panjang ──
+            if len(text) > 4000:
+                text = (
+                    f"💼 Trade Aktif ({total_trades} pair)\n"
+                    f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}\n"
+                    f"📊 Rata-rata PnL: {avg_pnl:+.2f}%\n\n"
+                    f"⚠️ Terlalu banyak trade untuk ditampilkan di sini.\n"
+                    f"Gunakan command /stats untuk detail lengkap."
+                )
+            
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
+                ]])
             )
-        
-        # Tambahkan info jika ada lebih dari 10
-        if total_trades > 10:
-            lines.append(f"\n... dan {total_trades - 10} trade lainnya (gunakan /stats untuk detail)")
-        
-        text = "\n".join(lines)
-        
-        # ── Kirim dengan pagination jika masih terlalu panjang ──
-        if len(text) > 4000:
-            # Kirim ringkasan sangat singkat
-            text = (
-                f"💼 Trade Aktif ({total_trades} pair)\n"
-                f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}\n"
-                f"📊 Rata-rata PnL: {avg_pnl:+.2f}%\n\n"
-                f"⚠️ Terlalu banyak trade untuk ditampilkan di sini.\n"
-                f"Gunakan command /stats untuk detail lengkap."
-            )
-        
-        await query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
-            ]])
-        )
 
     elif data == "mon_stats":
         try:
@@ -1222,7 +1219,7 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             f"Mitigation 50%: {'Aktif' if MITIGATION_50PCT else 'Nonaktif'}\n"
             f"Swing lookback: {SWING_LOOKBACK} candle\n"
             f"Sesi London: {SESSION_LONDON_START:02d}:00-{SESSION_LONDON_END:02d}:00 UTC\n"
-            f"Sesi NY    : {SESSION_NY_START:02d}:00-{SESSION_NY_END:02d}:00 UTC"
+            f"Sesi NY    : {SESSION_NY_START:02d}:00-{SESSION_NY_END:02d}:00 UTC\n"
             f"Top N pair: {TOP_N_PAIRS}\n"
             f"Cooldown alert: {ALERT_COOLDOWN_MINUTES} menit\n"
             f"Interval scan: {CHECK_INTERVAL_MINUTES} menit"
@@ -1241,8 +1238,7 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             "/backtest BTC-USDT-SWAP 3 — backtest 3 bulan\n"
             "/stats — statistik alert\n"
             "/pairs — daftar pair"
-        )
-
+            )
 
 async def text_input_handler(update, context: ContextTypes.DEFAULT_TYPE):
     """Handle input teks dari user setelah diminta (zones, price, backtest custom)."""
