@@ -270,7 +270,6 @@ def calculate_volume_threshold(candles: list, multiplier: float = 1.2) -> float:
     
     return median_vol * multiplier
 
-
 def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                          volume_multiplier: float,
                          require_bos: bool = True,
@@ -282,12 +281,6 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
     """
     Deteksi order block dengan filter kualitas lengkap.
     """
-    if use_median_volume:
-        volume_threshold = calculate_volume_threshold(candles, volume_multiplier)
-    else:
-        avg_vol = sum(c["vol"] for c in candles) / n
-        volume_threshold = avg_vol * volume_multiplier
-    
     # Normalisasi ke list of dict
     if HAS_PANDAS and hasattr(data, 'iterrows'):
         candles = data.to_dict("records")
@@ -298,12 +291,12 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
     n = len(candles)
     if n == 0:
         return []
-    
-    # Gunakan MEDIAN volume (bukan average)
+
+    # ── Volume threshold (MEDIAN) ──
     volume_threshold = calculate_volume_threshold(candles, volume_multiplier)
     logger.info(f"Volume threshold (median × {volume_multiplier}): {volume_threshold:.2f}")
-    
-    # Hitung ATR sekali untuk seluruh data
+
+    # ── ATR untuk impulse filter ──
     atr = None
     if use_atr_impulse:
         atr = calculate_atr(candles, 14)
@@ -311,6 +304,8 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
             logger.info(f"ATR untuk {len(candles)} candle: {atr:.4f}, threshold: {atr * impulse_atr_multiplier:.4f}")
         else:
             logger.info("ATR tidak tersedia, menggunakan fixed impulse_min_percent")
+    else:
+        logger.info("ATR-based impulse DINONAKTIFKAN, menggunakan fixed impulse_min_percent")
 
     for i in range(n - 3):
         c = candles[i]
@@ -320,19 +315,20 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
         future = candles[i + 1:i + 4]
         if not future:
             continue
-        
-        # Filter 1: Volume (pakai median threshold)
+
+        # ── Filter 1: Volume ──
         if c["vol"] < volume_threshold:
             continue
-        
+
         zone_top = c["high"]
         zone_bottom = c["low"]
 
+        # ── BEARISH CANDLE → BULLISH OB ──
         if is_bearish:
             max_high_future = max(f["high"] for f in future)
             impulse = max_high_future - c["close"]
             
-            # Filter 2: Impulse (ATR-based atau fixed)
+            # ── Filter 2: Impulse ──
             if use_atr_impulse and atr is not None:
                 if impulse < atr * impulse_atr_multiplier:
                     continue
@@ -344,15 +340,15 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
             ob_type = "bullish"
             impulse_end = i + 3
 
-            # Filter 3: Break of Structure
+            # ── Filter 3: Break of Structure ──
             if require_bos and not _has_break_of_structure(candles, i, ob_type, impulse_end, swing_lookback):
                 continue
 
-            # Filter 4: Fair Value Gap (opsional)
+            # ── Filter 4: Fair Value Gap (opsional) ──
             if require_fvg and not _has_fvg_near_ob(candles, i, ob_type):
                 continue
 
-            # Filter 5: Mitigation 50%
+            # ── Filter 5: Mitigation 50% ──
             if mitigation_50pct:
                 mitigated = _is_mitigated_50pct(candles, i, zone_top, zone_bottom, ob_type)
             else:
@@ -360,16 +356,20 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
 
             if not mitigated:
                 zones.append({
-                    "type": ob_type, "top": zone_top, "bottom": zone_bottom,
-                    "index": i, "mitigated": False,
+                    "type": ob_type, 
+                    "top": zone_top, 
+                    "bottom": zone_bottom,
+                    "index": i, 
+                    "mitigated": False,
                     "has_fvg": _has_fvg_near_ob(candles, i, ob_type),
                 })
 
+        # ── BULLISH CANDLE → BEARISH OB ──
         if is_bullish:
             min_low_future = min(f["low"] for f in future)
             impulse = c["close"] - min_low_future
             
-            # Filter 2: Impulse (ATR-based atau fixed)
+            # ── Filter 2: Impulse ──
             if use_atr_impulse and atr is not None:
                 if impulse < atr * impulse_atr_multiplier:
                     continue
@@ -381,15 +381,15 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
             ob_type = "bearish"
             impulse_end = i + 3
 
-            # Filter 3: Break of Structure
+            # ── Filter 3: Break of Structure ──
             if require_bos and not _has_break_of_structure(candles, i, ob_type, impulse_end, swing_lookback):
                 continue
 
-            # Filter 4: Fair Value Gap (opsional)
+            # ── Filter 4: Fair Value Gap (opsional) ──
             if require_fvg and not _has_fvg_near_ob(candles, i, ob_type):
                 continue
 
-            # Filter 5: Mitigation 50%
+            # ── Filter 5: Mitigation 50% ──
             if mitigation_50pct:
                 mitigated = _is_mitigated_50pct(candles, i, zone_top, zone_bottom, ob_type)
             else:
@@ -397,8 +397,11 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
 
             if not mitigated:
                 zones.append({
-                    "type": ob_type, "top": zone_top, "bottom": zone_bottom,
-                    "index": i, "mitigated": False,
+                    "type": ob_type, 
+                    "top": zone_top, 
+                    "bottom": zone_bottom,
+                    "index": i, 
+                    "mitigated": False,
                     "has_fvg": _has_fvg_near_ob(candles, i, ob_type),
                 })
 
