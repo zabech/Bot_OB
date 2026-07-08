@@ -1537,6 +1537,7 @@ def main():
 
     try:
         db.init_db()
+        db.migrate_db()
     except Exception as e:
         raise RuntimeError(
             f"Gagal inisialisasi database: {e}\n"
