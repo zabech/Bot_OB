@@ -15,6 +15,7 @@ from apscheduler.triggers.cron import CronTrigger
 import db
 import ob_core
 from ob_core import calculate_atr
+from datetime import datetime, timezone
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
@@ -547,31 +548,27 @@ async def check_symbol(app, symbol: str) -> bool:
                 logger.info(f"[{symbol}] Alert terkirim ke Telegram.")
 
                 # Simpan trade aktif — blokir sinyal baru sampai TP/SL tercapai
-                active_trades[symbol] = {
-                    "entry": current_price,
-                    "sl": sl,
-                    "tp": tp,
-                    "zone_type": zone["type"],
-                    "htf": htf,
-                }
-
-                try:
-                    db.record_alert(
-                        symbol=symbol, zone_type=zone["type"], htf=htf, ltf=LTF,
-                        entry_price=current_price, zone_top=zone["top"], zone_bottom=zone["bottom"],
-                        invalidation=sl,
-                        target=tp,
-                    )
-                except Exception as e:
-                    logger.error(f"Gagal simpan alert ke database: {e}")
+    active_trades[symbol] = {
+        "entry": current_price,
+        "sl": sl,
+        "tp": tp,
+        "zone_type": zone["type"],
+        "htf": htf,
+        "entry_time": datetime.now(timezone.utc).isoformat(),  # <-- TAMBAHKAN INI
+    }
+    try:
+        db.record_alert(
+            symbol=symbol, zone_type=zone["type"], htf=htf, ltf=LTF,
+            entry_price=current_price, zone_top=zone["top"], zone_bottom=zone["bottom"],
+            invalidation=sl,
+            target=tp,
+            entry_time=datetime.now(timezone.utc).isoformat(),  # <-- TAMBAHKAN INI
+        )
+    except Exception as e:
+        logger.error(f"Gagal simpan alert ke database: {e}")
 
         return True
-
-    except Exception as e:
-        logger.error(f"Gagal cek {symbol}: {e}")
-        return False
-
-
+    
 async def check_open_alerts():
     """Cek semua alert berstatus 'open' di database: apakah harga sekarang sudah
     mencapai target (hit_target) atau malah menembus invalidasi (invalidated).
