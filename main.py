@@ -691,6 +691,9 @@ async def check_and_alert(app):
 
 # ── Command handlers ─────────────────────────────────────────
 async def start(update, context: ContextTypes.DEFAULT_TYPE):
+    # Reset page state
+    context.user_data["trade_page"] = 0
+    
     symbols = get_active_symbols()
     await update.message.reply_text(
         f"🤖 Bot OB aktif ✅\n\n"
@@ -700,7 +703,6 @@ async def start(update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_keyboard()
     )
 
-
 async def pairs_now(update, context: ContextTypes.DEFAULT_TYPE):
     symbols = get_active_symbols()
     if not symbols:
@@ -709,7 +711,6 @@ async def pairs_now(update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"Memantau {len(symbols)} pair:\n" + ", ".join(symbols)
     )
-
 
 async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
@@ -1062,106 +1063,186 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text)
 
     elif data == "mon_trades":
-        if not active_trades:
-            await query.edit_message_text(
-                "💼 Trade Aktif\n\nTidak ada trade aktif saat ini.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
-                ]])
-            )
-        else:
-            # ── Ringkasan singkat ──
-            total_trades = len(active_trades)
-            bullish_count = sum(1 for t in active_trades.values() if t["zone_type"] == "bullish")
-            bearish_count = total_trades - bullish_count
+        context.user_data["trade_page"] = 0
+    if not active_trades:
+        await query.edit_message_text(
+            "💼 Trade Aktif\n\nTidak ada trade aktif saat ini.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
+            ]])
+        )
+    else:
+        # ── Ringkasan ──
+        total_trades = len(active_trades)
+        bullish_count = sum(1 for t in active_trades.values() if t["zone_type"] == "bullish")
+        bearish_count = total_trades - bullish_count
+        
+        # Hitung total PnL
+        total_pnl = 0.0
+        pnl_count = 0
+        for sym, t in active_trades.items():
+            try:
+                price = get_current_price(sym)
+                if price and t.get("entry"):
+                    entry = t["entry"]
+                    if t["zone_type"] == "bullish":
+                        pnl = (price - entry) / entry * 100
+                    else:
+                        pnl = (entry - price) / entry * 100
+                    total_pnl += pnl
+                    pnl_count += 1
+            except Exception:
+                pass
+        
+        avg_pnl = total_pnl / pnl_count if pnl_count > 0 else 0
+        
+        # ── Buat daftar semua trade ──
+        all_trades = []
+        count = 0
+        for sym, t in active_trades.items():
+            count += 1
+            emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
             
-            # Hitung total PnL
-            total_pnl = 0.0
-            pnl_count = 0
-            for sym, t in active_trades.items():
+            # Ambil harga terkini untuk hitung PnL
+            pnl_str = "N/A"
+            status = ""
+            try:
+                price = get_current_price(sym)
+                if price and t.get("entry"):
+                    entry = t["entry"]
+                    if t["zone_type"] == "bullish":
+                        pnl = (price - entry) / entry * 100
+                    else:
+                        pnl = (entry - price) / entry * 100
+                    pnl_emoji = "📈" if pnl >= 0 else "📉"
+                    pnl_str = f"{pnl_emoji} {pnl:+.1f}%"
+                    
+                    # Status progress ke TP/SL
+                    if t.get("tp") and t.get("sl") and abs(t["sl"] - entry) > 0:
+                        risk = abs(entry - t["sl"])
+                        progress = abs(price - entry) / risk
+                        status = f" ({progress:.1f}R)"
+            except Exception:
+                pass
+            
+            # Format per trade
+            tp_str = f"{t['tp']:.4f}" if t.get("tp") else "N/A"
+            sl_str = f"{t['sl']:.4f}" if t.get("sl") else "N/A"
+            
+            # Entry time
+            entry_time_str = ""
+            if t.get("entry_time"):
                 try:
-                    price = get_current_price(sym)
-                    if price and t.get("entry"):
-                        entry = t["entry"]
-                        if t["zone_type"] == "bullish":
-                            pnl = (price - entry) / entry * 100
-                        else:
-                            pnl = (entry - price) / entry * 100
-                        total_pnl += pnl
-                        pnl_count += 1
+                    from datetime import datetime, timezone
+                    entry_time = datetime.fromisoformat(t["entry_time"])
+                    if entry_time.tzinfo is None:
+                        entry_time = entry_time.replace(tzinfo=timezone.utc)
+                    duration = datetime.now(timezone.utc) - entry_time
+                    hours = int(duration.total_seconds() / 3600)
+                    if hours > 24:
+                        days = hours // 24
+                        hours = hours % 24
+                        entry_time_str = f" ({days}d {hours}h)"
+                    else:
+                        entry_time_str = f" ({hours}h)"
                 except Exception:
                     pass
             
-            avg_pnl = total_pnl / pnl_count if pnl_count > 0 else 0
-            
-            # ── Buat pesan ringkasan ──
-            lines = [
-                f"💼 Trade Aktif ({total_trades} pair)",
-                f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}",
-                f"📊 Rata-rata PnL: {avg_pnl:+.2f}%",
-                "",
-                "📋 Daftar trade terbaru (max 10):",
+            all_trades.append({
+                "num": count,
+                "emoji": emoji,
+                "symbol": sym,
+                "htf": t["htf"],
+                "pnl": pnl_str,
+                "status": status,
+                "sl": sl_str,
+                "tp": tp_str,
+                "entry_time": entry_time_str,
+                "zone_type": t["zone_type"],
+                "entry": t["entry"],
+                "price": price if 'price' in locals() else None,
+            })
+        
+        # ── Kirim dengan pagination (10 per halaman) ──
+        items_per_page = 10
+        total_pages = (len(all_trades) + items_per_page - 1) // items_per_page
+        current_page = context.user_data.get("trade_page", 0)
+        
+        # Validasi halaman
+        if current_page >= total_pages:
+            current_page = total_pages - 1
+        if current_page < 0:
+            current_page = 0
+        
+        start_idx = current_page * items_per_page
+        end_idx = min(start_idx + items_per_page, len(all_trades))
+        page_trades = all_trades[start_idx:end_idx]
+        
+        # ── Buat pesan ──
+        lines = [
+            f"💼 Trade Aktif ({total_trades} pair) - Halaman {current_page + 1}/{total_pages}",
+            f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}",
+            f"📊 Rata-rata PnL: {avg_pnl:+.2f}%",
+            "",
+            "📋 Daftar trade:",
+        ]
+        
+        for t in page_trades:
+            lines.append(
+                f"{t['num']}. {t['emoji']} {t['symbol']} ({t['htf']}){t['entry_time']} | "
+                f"PnL: {t['pnl']}{t['status']} | "
+                f"SL: {t['sl']} | TP: {t['tp']}"
+            )
+        
+        if total_trades > items_per_page:
+            lines.append(f"\nHalaman {current_page + 1} dari {total_pages} (total {total_trades} trade)")
+        
+        text = "\n".join(lines)
+        
+        # ── Buat tombol navigasi ──
+        nav_buttons = []
+        
+        # Tombol Previous
+        if current_page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data="trade_prev"))
+        
+        # Tombol Halaman
+        nav_buttons.append(InlineKeyboardButton(f"{current_page + 1}/{total_pages}", callback_data="trade_page_info"))
+        
+        # Tombol Next
+        if current_page < total_pages - 1:
+            nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data="trade_next"))
+        
+        # Tombol Refresh
+        nav_buttons.append(InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades"))
+        
+        # Buat keyboard dengan 1 baris (atau 2 baris jika terlalu banyak)
+        if len(nav_buttons) > 3:
+            keyboard = [
+                nav_buttons[:2],
+                nav_buttons[2:4],
             ]
-            
-            # Tampilkan maksimal 10 trade
-            count = 0
-            for sym, t in list(active_trades.items())[:10]:
-                count += 1
-                emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
-                
-                # Ambil harga terkini untuk hitung PnL
-                pnl_str = "N/A"
-                status = ""
-                try:
-                    price = get_current_price(sym)
-                    if price and t.get("entry"):
-                        entry = t["entry"]
-                        if t["zone_type"] == "bullish":
-                            pnl = (price - entry) / entry * 100
-                        else:
-                            pnl = (entry - price) / entry * 100
-                        pnl_emoji = "📈" if pnl >= 0 else "📉"
-                        pnl_str = f"{pnl_emoji} {pnl:+.1f}%"
-                        
-                        # Status progress ke TP/SL
-                        if t.get("tp") and t.get("sl") and abs(t["sl"] - entry) > 0:
-                            risk = abs(entry - t["sl"])
-                            progress = abs(price - entry) / risk
-                            status = f" ({progress:.1f}R)"
-                except Exception:
-                    pass
-                
-                # Format singkat per trade
-                tp_str = f"{t['tp']:.2f}" if t.get("tp") else "N/A"
-                sl_str = f"{t['sl']:.2f}" if t.get("sl") else "N/A"
-                lines.append(
-                    f"{count}. {emoji} {sym} ({t['htf']}) | "
-                    f"PnL: {pnl_str}{status} | "
-                    f"SL: {sl_str} | TP: {tp_str}"
-                )
-            
-            # Tambahkan info jika ada lebih dari 10
-            if total_trades > 10:
-                lines.append(f"\n... dan {total_trades - 10} trade lainnya (gunakan /stats untuk detail)")
-            
-            text = "\n".join(lines)
-            
-            # ── Kirim dengan pagination jika masih terlalu panjang ──
-            if len(text) > 4000:
-                text = (
-                    f"💼 Trade Aktif ({total_trades} pair)\n"
-                    f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}\n"
-                    f"📊 Rata-rata PnL: {avg_pnl:+.2f}%\n\n"
-                    f"⚠️ Terlalu banyak trade untuk ditampilkan di sini.\n"
-                    f"Gunakan command /stats untuk detail lengkap."
-                )
-            
-            await query.edit_message_text(
-                text,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_trades")
-                ]])
-            )
+        else:
+            keyboard = [nav_buttons]
+        
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    # ── NAVIGASI TRADE ──
+elif data == "trade_next":
+context.user_data["trade_page"] = context.user_data.get("trade_page", 0) + 1
+await inline_callback(update, context)  # Re-run untuk tampilkan halaman berikutnya
+    
+elif data == "trade_prev":
+context.user_data["trade_page"] = max(0, context.user_data.get("trade_page", 0) - 1)
+await inline_callback(update, context)  # Re-run untuk tampilkan halaman sebelumnya
+    
+elif data == "trade_page_info":
+# Tampilkan info halaman
+await query.answer(f"Halaman {context.user_data.get('trade_page', 0) + 1}")
+
 
     elif data == "mon_stats":
         try:
