@@ -132,14 +132,8 @@ def fetch_klines_df(symbol: str, interval: str, limit: int):
         return data.to_dict("records")
     return data
 
-
 def detect_order_blocks(candles, max_zones: int) -> list:
-    # Di detect_order_blocks, setelah hitung ATR
-    if atr is not None:
-        logger.info(f"ATR untuk {len(candles)} candle: {atr:.4f}, threshold: {atr * impulse_atr_multiplier:.4f}")
-    else:
-        logger.info("ATR tidak tersedia, menggunakan fixed impulse_min_percent")
-    
+    """Wrapper untuk ob_core.detect_order_blocks dengan parameter dari konfigurasi."""
     # Pastikan input selalu list of dict
     if hasattr(candles, 'to_dict'):
         candles = candles.to_dict("records")
@@ -149,6 +143,8 @@ def detect_order_blocks(candles, max_zones: int) -> list:
         require_fvg=REQUIRE_FVG,
         mitigation_50pct=MITIGATION_50PCT,
         swing_lookback=SWING_LOOKBACK,
+        use_atr_impulse=USE_ATR_IMPULSE,
+        impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER
     )
 
 def ltf_shows_reaction(ltf_data, zone: dict) -> bool:
