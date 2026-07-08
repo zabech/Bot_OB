@@ -14,6 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import db
 import ob_core
+from ob_core import calculate_atr
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
@@ -261,7 +262,6 @@ def calculate_ma(candles, period: int) -> Optional[float]:
     closes = [c["close"] if isinstance(c, dict) else float(c["close"]) for c in candles[-period:]]
     return sum(closes) / len(closes)
 
-
 def calculate_sl_with_atr(zone: dict, current_price: float,
                            htf_candles: list) -> tuple:
     """
@@ -273,7 +273,16 @@ def calculate_sl_with_atr(zone: dict, current_price: float,
     Return: (sl_price, sl_method) — sl_method = "ATR" atau "buffer"
     """
     invalidation = calculate_invalidation(zone)
-    atr = calculate_atr(htf_candles, ATR_PERIOD)
+    
+    # ⬇️ PERBAIKAN DI SINI ⬇️
+    # Pastikan menggunakan ob_core.calculate_atr
+    try:
+        atr = ob_core.calculate_atr(htf_candles, ATR_PERIOD)
+    except AttributeError:
+        # Fallback jika fungsi tidak tersedia
+        atr = None
+        logger.warning("ob_core.calculate_atr tidak tersedia, gunakan fallback buffer")
+    # ⬆️ PERBAIKAN DI SINI ⬆️
 
     # SL flat buffer (fallback)
     if zone["type"] == "bullish":
@@ -287,14 +296,12 @@ def calculate_sl_with_atr(zone: dict, current_price: float,
     # SL berbasis ATR
     if zone["type"] == "bullish":
         sl_atr = invalidation - atr * ATR_MULTIPLIER
-        # Ambil yang lebih jauh dari harga (lebih konservatif/aman)
         sl = min(sl_atr, sl_flat)
     else:
         sl_atr = invalidation + atr * ATR_MULTIPLIER
         sl = max(sl_atr, sl_flat)
 
     return (sl, "ATR")
-
 
 def get_current_price(symbol: str) -> Optional[float]:
     """Ambil harga terakhir pair dari endpoint ticker OKX."""
