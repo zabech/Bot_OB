@@ -529,7 +529,7 @@ async def check_symbol(app, symbol: str) -> bool:
 
                 ma_val = calculate_ma(htf_candles_list, MA_PERIOD)
                 trend_text = f"MA{MA_PERIOD}: {ma_val:.4g} ({'↑ Uptrend' if current_price > ma_val else '↓ Downtrend'})" if ma_val else "N/A"
-
+                
                 await app.bot.send_message(
                     chat_id=CHAT_ID,
                     text=(
@@ -546,28 +546,33 @@ async def check_symbol(app, symbol: str) -> bool:
                 )
                 zone["mitigated"] = True
                 logger.info(f"[{symbol}] Alert terkirim ke Telegram.")
+                
+            # Simpan trade aktif — blokir sinyal baru sampai TP/SL tercapai
+            active_trades[symbol] = {
+                "entry": current_price,
+                "sl": sl,
+                "tp": tp,
+                "zone_type": zone["type"],
+                "htf": htf,
+                "entry_time": datetime.now(timezone.utc).isoformat(),
+            }
 
-                # Simpan trade aktif — blokir sinyal baru sampai TP/SL tercapai
-    active_trades[symbol] = {
-        "entry": current_price,
-        "sl": sl,
-        "tp": tp,
-        "zone_type": zone["type"],
-        "htf": htf,
-        "entry_time": datetime.now(timezone.utc).isoformat(),  # <-- TAMBAHKAN INI
-    }
-    try:
-        db.record_alert(
-            symbol=symbol, zone_type=zone["type"], htf=htf, ltf=LTF,
-            entry_price=current_price, zone_top=zone["top"], zone_bottom=zone["bottom"],
-            invalidation=sl,
-            target=tp,
-            entry_time=datetime.now(timezone.utc).isoformat(),  # <-- TAMBAHKAN INI
-        )
-    except Exception as e:
-        logger.error(f"Gagal simpan alert ke database: {e}")
-
-        return True
+            try:
+                db.record_alert(
+                    symbol=symbol, zone_type=zone["type"], htf=htf, ltf=LTF,
+                    entry_price=current_price, zone_top=zone["top"], zone_bottom=zone["bottom"],
+                    invalidation=sl,
+                    target=tp,
+                    entry_time=datetime.now(timezone.utc).isoformat(),
+                )
+            except Exception as e:
+                logger.error(f"Gagal simpan alert ke database: {e}")
+                
+                return True
+            
+            except Exception as e:
+                logger.error(f"Gagal cek {symbol}: {e}")
+                return False
     
 async def check_open_alerts():
     """Cek semua alert berstatus 'open' di database: apakah harga sekarang sudah
