@@ -75,9 +75,7 @@ def record_alert(symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom
     cursor.close()
     conn.close()
     return alert_id
-    finally:
-        conn.close()
-
+    
 def get_open_alerts():
     """Ambil semua alert yang masih berstatus 'open' (belum resolved), untuk dicek ulang."""
     conn = get_connection()
