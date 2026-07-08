@@ -150,8 +150,7 @@ def detect_order_blocks(candles, max_zones: int) -> list:
 def ltf_shows_reaction(ltf_data, zone: dict) -> bool:
     if hasattr(ltf_data, 'to_dict'):
         ltf_data = ltf_data.to_dict("records")
-    return ob_core.ltf_shows_reaction(ltf_data, zone)
-
+    return ob_core.ltf_shows_reaction_advanced(ltf_data, zone)  # <-- PAKAI YANG ADVANCED
 
 def interval_to_seconds(interval: str) -> int:
     """Konversi string interval OKX ke detik."""
