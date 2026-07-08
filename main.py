@@ -43,7 +43,6 @@ MAX_ACTIVE_ZONES_PER_TF = int(os.environ.get("MAX_ACTIVE_ZONES_PER_TF", 3))
 VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", 1.2))
 
 # Filter kualitas tambahan
-MIN_PRICE_USD = float(os.environ.get("MIN_PRICE_USD", 0.01))  # skip pair dengan harga < $0.01 (micro-price)
 MA_PERIOD = int(os.environ.get("MA_PERIOD", 50))               # periode MA untuk filter trend
 USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
 
@@ -306,12 +305,6 @@ def get_current_price(symbol: str) -> Optional[float]:
     except Exception:
         return None
 
-
-def is_price_above_min(current_price: float) -> bool:
-    """Return True kalau harga >= MIN_PRICE_USD (filter micro-price pair)."""
-    return current_price >= MIN_PRICE_USD
-
-
 def trend_allows_zone(zone: dict, current_price: float, htf_candles) -> bool:
     """
     Filter trend: cek apakah arah zona OB searah dengan trend MA50 HTF.
@@ -463,12 +456,7 @@ async def check_symbol(app, symbol: str) -> bool:
             current_price = float(ltf_df[-1]["close"] if isinstance(ltf_df, list) else ltf_df.iloc[-1]["close"])
         else:
             current_price = float(ltf_df[-1]["close"])
-
-        # Filter 1: skip pair micro-price (harga terlalu kecil = noise tinggi)
-        if not is_price_above_min(current_price):
-            logger.info(f"[{symbol}] Skip — harga {current_price} < MIN_PRICE_USD {MIN_PRICE_USD}")
-            return True  # bukan error, cuma di-skip
-
+        
         # Cek trade aktif dulu — kalau masih ada, cek apakah TP/SL sudah tercapai
         still_active = await check_active_trade(app, symbol, current_price)
         if still_active:
