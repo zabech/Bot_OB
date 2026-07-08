@@ -55,24 +55,28 @@ def init_db():
         conn.close()
 
 
-def record_alert(symbol: str, zone_type: str, htf: str, ltf: str, entry_price: float,
-                  zone_top: float, zone_bottom: float, invalidation: float, target):
-    """Simpan 1 alert baru ke database, status awal selalu 'open'."""
+def record_alert(symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target, entry_time=None):
+    """Catat alert baru ke database."""
     conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO alerts
-                    (symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id;
-            """, (symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target))
-            alert_id = cur.fetchone()[0]
-        conn.commit()
-        return alert_id
+    cursor = conn.cursor()
+    
+    # Jika entry_time tidak diberikan, gunakan waktu sekarang
+    if entry_time is None:
+        entry_time = datetime.now(timezone.utc).isoformat()
+    
+    cursor.execute("""
+        INSERT INTO alerts 
+        (symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target, entry_time, status)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
+    """, (symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target, entry_time))
+    
+    alert_id = cursor.lastrowid
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return alert_id
     finally:
         conn.close()
-
 
 def get_open_alerts():
     """Ambil semua alert yang masih berstatus 'open' (belum resolved), untuk dicek ulang."""
