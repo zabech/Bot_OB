@@ -69,7 +69,9 @@ def record_alert(symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom
     conn = get_connection()
     cursor = conn.cursor()
     
+    # Jika entry_time tidak diberikan, gunakan waktu sekarang
     if entry_time is None:
+        from datetime import datetime, timezone
         entry_time = datetime.now(timezone.utc).isoformat()
     
     cursor.execute("""
@@ -115,7 +117,7 @@ def get_open_alerts():
             "zone_bottom": row[7],
             "invalidation": row[8],
             "target": row[9],
-            "entry_time": row[10],
+            "entry_time": row[10],  # <-- PASTIKAN INI ADA
             "status": row[11],
             "pnl_pct": row[12],
             "created_at": row[13],
