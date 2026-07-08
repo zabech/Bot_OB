@@ -6,61 +6,69 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
+# Database connection
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-
 def get_connection():
-    """Buat koneksi baru ke PostgreSQL. DATABASE_URL otomatis di-inject Railway
-    saat addon PostgreSQL ditambahkan dan di-link ke service ini."""
+    """Buat koneksi ke PostgreSQL."""
     if not DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL tidak ditemukan. Pastikan PostgreSQL addon sudah ditambahkan "
-            "dan ter-link ke service ini di Railway."
-        )
+        raise RuntimeError("DATABASE_URL environment variable not set")
     return psycopg2.connect(DATABASE_URL)
 
-
 def init_db():
-    """Buat tabel alerts kalau belum ada. Aman dipanggil berulang kali (idempotent)."""
+    """Inisialisasi database dan buat tabel jika belum ada."""
     conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS alerts (
-                    id SERIAL PRIMARY KEY,
-                    symbol TEXT NOT NULL,
-                    zone_type TEXT NOT NULL,
-                    htf TEXT NOT NULL,
-                    ltf TEXT NOT NULL,
-                    entry_price DOUBLE PRECISION NOT NULL,
-                    zone_top DOUBLE PRECISION NOT NULL,
-                    zone_bottom DOUBLE PRECISION NOT NULL,
-                    invalidation DOUBLE PRECISION NOT NULL,
-                    target DOUBLE PRECISION,
-                    pnl_pct DOUBLE PRECISION,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    status TEXT NOT NULL DEFAULT 'open',
-                    resolved_at TIMESTAMPTZ
-                );
-            """)
-            # Tambah kolom pnl_pct kalau belum ada (untuk tabel yang sudah dibuat sebelumnya)
-            cur.execute("""
-                ALTER TABLE alerts ADD COLUMN IF NOT EXISTS pnl_pct DOUBLE PRECISION;
-            """)
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol);")
-        conn.commit()
-        logger.info("Tabel alerts siap (sudah ada atau baru dibuat).")
-    finally:
-        conn.close()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(50) NOT NULL,
+            zone_type VARCHAR(10) NOT NULL,
+            htf VARCHAR(10) NOT NULL,
+            ltf VARCHAR(10) NOT NULL,
+            entry_price DECIMAL(20,10) NOT NULL,
+            zone_top DECIMAL(20,10) NOT NULL,
+            zone_bottom DECIMAL(20,10) NOT NULL,
+            invalidation DECIMAL(20,10) NOT NULL,
+            target DECIMAL(20,10),
+            entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status VARCHAR(20) DEFAULT 'open',
+            pnl_pct DECIMAL(10,2),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    logger.info("Database initialized successfully")
 
+def migrate_db():
+    """Tambahkan kolom entry_time jika belum ada (untuk database existing)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            ALTER TABLE alerts ADD COLUMN entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        """)
+        conn.commit()
+        logger.info("✅ Kolom entry_time berhasil ditambahkan")
+    except Exception as e:
+        if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
+            logger.info("ℹ️ Kolom entry_time sudah ada")
+        else:
+            logger.warning(f"⚠️ Error migrasi: {e}")
+    
+    cursor.close()
+    conn.close()
 
 def record_alert(symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target, entry_time=None):
     """Catat alert baru ke database."""
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Jika entry_time tidak diberikan, gunakan waktu sekarang
     if entry_time is None:
         entry_time = datetime.now(timezone.utc).isoformat()
     
@@ -68,24 +76,52 @@ def record_alert(symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom
         INSERT INTO alerts 
         (symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target, entry_time, status)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
+        RETURNING id
     """, (symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target, entry_time))
     
-    alert_id = cursor.lastrowid
+    alert_id = cursor.fetchone()[0]
     conn.commit()
     cursor.close()
     conn.close()
     return alert_id
-    
-def get_open_alerts():
-    """Ambil semua alert yang masih berstatus 'open' (belum resolved), untuk dicek ulang."""
-    conn = get_connection()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT * FROM alerts WHERE status = 'open';")
-            return cur.fetchall()
-    finally:
-        conn.close()
 
+def get_open_alerts():
+    """Ambil semua alert yang masih open."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, 
+               invalidation, target, entry_time, status, pnl_pct, created_at
+        FROM alerts 
+        WHERE status = 'open'
+        ORDER BY created_at DESC
+    """)
+    
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    alerts = []
+    for row in rows:
+        alerts.append({
+            "id": row[0],
+            "symbol": row[1],
+            "zone_type": row[2],
+            "htf": row[3],
+            "ltf": row[4],
+            "entry_price": row[5],
+            "zone_top": row[6],
+            "zone_bottom": row[7],
+            "invalidation": row[8],
+            "target": row[9],
+            "entry_time": row[10],
+            "status": row[11],
+            "pnl_pct": row[12],
+            "created_at": row[13],
+        })
+    
+    return alerts
 
 def resolve_alert(alert_id: int, status: str):
     """Tandai alert sebagai selesai: 'hit_target' atau 'invalidated'."""
