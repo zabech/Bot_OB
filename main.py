@@ -331,6 +331,34 @@ def trend_allows_zone(zone: dict, current_price: float, htf_candles) -> bool:
         return True   # harga di bawah MA -> downtrend -> bearish OB valid
     return False
 
+def format_duration(entry_time_str: str) -> str:
+    """Hitung durasi dari entry_time sampai sekarang dan format menjadi string."""
+    try:
+        from datetime import datetime, timezone
+        
+        # Parse entry_time
+        entry_time = datetime.fromisoformat(entry_time_str)
+        now = datetime.now(timezone.utc)
+        
+        # Jika entry_time naive (tanpa timezone), asumsikan UTC
+        if entry_time.tzinfo is None:
+            entry_time = entry_time.replace(tzinfo=timezone.utc)
+        
+        delta = now - entry_time
+        
+        total_seconds = delta.total_seconds()
+        days = int(total_seconds // 86400)
+        hours = int((total_seconds % 86400) // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        
+        if days > 0:
+            return f"{days}d {hours}h {minutes}m"
+        elif hours > 0:
+            return f"{hours}h {minutes}m"
+        else:
+            return f"{minutes}m"
+    except Exception:
+        return "N/A"
 
 async def check_active_trade(app, symbol: str, current_price: float) -> bool:
     """
@@ -394,13 +422,18 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
     if hit_tp:
         risk = abs(entry - sl)
         profit_pct = abs(current_price - entry) / entry * 100
+        
+        entry_time = trade.get("entry_time")
+        duration_str = format_duration(entry_time) if entry_time else "N/A"
+        
         await app.bot.send_message(
             chat_id=CHAT_ID,
             text=(
                 f"✅ {symbol} TP TERCAPAI!\n"
                 f"Timeframe: {htf} | {zone_type.capitalize()}\n"
                 f"Entry: {entry:.4g} → TP: {tp:.4g}\n"
-                f"Profit: +{profit_pct:.2f}%\n\n"
+                f"Profit: +{profit_pct:.2f}%\n"
+                f"⏱️ Durasi: {duration_str}\n\n"
                 f"Pair kini terbuka untuk sinyal berikutnya."
             )
         )
@@ -413,24 +446,27 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
         return False
 
     if hit_sl:
-        # Hitung PnL aktual berdasarkan SL yang terkena (bisa breakeven atau SL awal)
         if zone_type == "bullish":
             pnl_pct = (sl - entry) / entry * 100
         else:
             pnl_pct = (entry - sl) / entry * 100
-
+        
         pnl_str = f"+{pnl_pct:.2f}% (breakeven)" if breakeven_triggered else f"-{abs(pnl_pct):.2f}%"
         emoji = "⚖️" if breakeven_triggered else "❌"
         label = "BREAKEVEN" if breakeven_triggered else "SL TERKENA"
         status = "hit_target" if breakeven_triggered else "invalidated"
-
+        
+        entry_time = trade.get("entry_time")
+        duration_str = format_duration(entry_time) if entry_time else "N/A"
+        
         await app.bot.send_message(
             chat_id=CHAT_ID,
             text=(
                 f"{emoji} {symbol} {label}!\n"
                 f"Timeframe: {htf} | {zone_type.capitalize()}\n"
                 f"Entry: {entry:.4g} → SL: {sl:.4g}\n"
-                f"PnL: {pnl_str}\n\n"
+                f"PnL: {pnl_str}\n"
+                f"⏱️ Durasi: {duration_str}\n\n"
                 f"Pair kini terbuka untuk sinyal berikutnya."
             )
         )
@@ -439,8 +475,8 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
             db.resolve_alert_by_symbol(symbol, status, pnl_pct=pnl_pct)
         except Exception:
             pass
-        return False
-
+        return false
+        
     return True
 
 async def check_symbol(app, symbol: str) -> bool:
@@ -1436,6 +1472,8 @@ async def on_startup(app):
                 sl = float(alert["invalidation"])
                 zone_type = alert["zone_type"]
 
+                entry_time=alert.get("entry_time")
+
                 # Kalau TP tidak tersimpan di DB, hitung ulang dari R:R
                 if alert["target"]:
                     tp = float(alert["target"])
@@ -1453,6 +1491,7 @@ async def on_startup(app):
                     "tp": tp,
                     "zone_type": zone_type,
                     "htf": alert["htf"],
+                    "entry_time": entry_time,
                 }
 
                 # Update DB kalau TP sebelumnya NULL
