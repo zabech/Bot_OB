@@ -1421,10 +1421,9 @@ async def show_trades_page(update, context, query):
         "",
         "📋 Daftar trade:",
     ]
-
-for t in page_trades:
-    # Tambahkan indikator breakeven
-    be_indicator = " 🔒" if t.get("breakeven_triggered", False) else ""
+    for t in page_trades:
+        # Tambahkan indikator breakeven
+        be_indicator = " 🔒" if t.get("breakeven_triggered", False) else ""
     
     lines.append(
         f"{t['num']}. {t['emoji']} {t['symbol']} ({t['htf']}){t['entry_time']}{be_indicator} | "
