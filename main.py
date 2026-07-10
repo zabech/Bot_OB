@@ -1337,11 +1337,18 @@ async def show_trades_page(update, context, query):
     
     avg_pnl = total_pnl / pnl_count if pnl_count > 0 else 0
     
-    # ── Buat daftar semua trade ──
+    # ── Buat daftar semua trade dengan SORTING ──
     all_trades = []
-    count = 0
-    for sym, t in active_trades.items():
-        count += 1
+    
+    # Sortir berdasarkan entry_time (terbaru di atas)
+    # Jika tidak ada entry_time, sortir berdasarkan symbol
+    sorted_trades = sorted(
+        active_trades.items(),
+        key=lambda x: x[1].get("entry_time", x[0]),
+        reverse=True
+    )
+    
+    for idx, (sym, t) in enumerate(sorted_trades, 1):
         emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
         
         pnl_str = "N/A"
@@ -1387,7 +1394,7 @@ async def show_trades_page(update, context, query):
                 pass
         
         all_trades.append({
-            "num": count,
+            "num": idx,  # <-- NOMOR URUT BERDASARKAN SORTING
             "emoji": emoji,
             "symbol": sym,
             "htf": t["htf"],
@@ -1421,15 +1428,14 @@ async def show_trades_page(update, context, query):
         "",
         "📋 Daftar trade:",
     ]
-    for t in page_trades:
-        # Tambahkan indikator breakeven
-        be_indicator = " 🔒" if t.get("breakeven_triggered", False) else ""
     
-    lines.append(
-        f"{t['num']}. {t['emoji']} {t['symbol']} ({t['htf']}){t['entry_time']}{be_indicator} | "
-        f"PnL: {t['pnl']}{t['status']} | "
-        f"SL: {t['sl']} | TP: {t['tp']}"
-    )
+    for t in page_trades:
+        be_indicator = " 🔒" if t.get("breakeven_triggered", False) else ""
+        lines.append(
+            f"{t['num']}. {t['emoji']} {t['symbol']} ({t['htf']}){t['entry_time']}{be_indicator} | "
+            f"PnL: {t['pnl']}{t['status']} | "
+            f"SL: {t['sl']} | TP: {t['tp']}"
+        )
     
     if total_trades > items_per_page:
         lines.append(f"\nHalaman {current_page + 1} dari {total_pages} (total {total_trades} trade)")
@@ -1454,11 +1460,11 @@ async def show_trades_page(update, context, query):
         keyboard = [nav_buttons[:2], nav_buttons[2:4]]
     else:
         keyboard = [nav_buttons]
-        
-        await query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def text_input_handler(update, context: ContextTypes.DEFAULT_TYPE):
     """Handle input teks dari user setelah diminta (zones, price, backtest custom)."""
