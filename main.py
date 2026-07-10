@@ -1455,10 +1455,10 @@ for t in page_trades:
         keyboard = [nav_buttons[:2], nav_buttons[2:4]]
     else:
         keyboard = [nav_buttons]
-    
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
 async def text_input_handler(update, context: ContextTypes.DEFAULT_TYPE):
