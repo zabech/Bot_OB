@@ -984,6 +984,7 @@ def monitoring_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🤖 Status Bot",       callback_data="mon_status")],
         [InlineKeyboardButton("📋 Daftar Pair",       callback_data="mon_pairs")],
         [InlineKeyboardButton("💼 Trade Aktif",       callback_data="mon_trades")],
+        [InlineKeyboardButton("🔒 Breakeven Trades",  callback_data="mon_be_trades")],
         [InlineKeyboardButton("📈 Statistik Alert",   callback_data="mon_stats")],
         [InlineKeyboardButton("🗓️ Ringkasan Harian",  callback_data="mon_daily")],
     ])
@@ -1218,6 +1219,134 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
+    elif data == "mon_be_trades":
+    """Tampilkan daftar trade yang SL-nya sudah di breakeven."""
+    # Cari trade dengan breakeven_triggered = True
+    be_trades = {}
+    for sym, t in active_trades.items():
+        if t.get("breakeven_triggered", False):
+            be_trades[sym] = t
+    
+    if not be_trades:
+        await query.edit_message_text(
+            "🔒 Breakeven Trades\n\nTidak ada trade yang SL-nya sudah digeser ke breakeven.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 Refresh", callback_data="mon_be_trades")
+            ]])
+        )
+        return
+    
+    total_be = len(be_trades)
+    bullish_count = sum(1 for t in be_trades.values() if t["zone_type"] == "bullish")
+    bearish_count = total_be - bullish_count
+    
+    # ── Hitung PnL rata-rata breakeven trades ──
+    total_pnl = 0.0
+    pnl_count = 0
+    for sym, t in be_trades.items():
+        try:
+            price = get_current_price(sym)
+            if price and t.get("entry"):
+                entry = t["entry"]
+                if t["zone_type"] == "bullish":
+                    pnl = (price - entry) / entry * 100
+                else:
+                    pnl = (entry - price) / entry * 100
+                total_pnl += pnl
+                pnl_count += 1
+        except Exception:
+            pass
+    
+    avg_pnl = total_pnl / pnl_count if pnl_count > 0 else 0
+    
+    # ── Buat daftar ──
+    lines = [
+        f"🔒 Breakeven Trades ({total_be} pair)",
+        f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}",
+        f"📊 Rata-rata PnL: {avg_pnl:+.2f}%",
+        "",
+        "📋 Daftar trade (SL sudah di breakeven):",
+    ]
+    
+    count = 0
+    for sym, t in be_trades.items():
+        count += 1
+        emoji = "🟢" if t["zone_type"] == "bullish" else "🔴"
+        
+        # Ambil harga terkini
+        pnl_str = "N/A"
+        status = ""
+        try:
+            price = get_current_price(sym)
+            if price and t.get("entry"):
+                entry = t["entry"]
+                if t["zone_type"] == "bullish":
+                    pnl = (price - entry) / entry * 100
+                else:
+                    pnl = (entry - price) / entry * 100
+                pnl_emoji = "📈" if pnl >= 0 else "📉"
+                pnl_str = f"{pnl_emoji} {pnl:+.1f}%"
+                
+                # Status progress ke TP
+                if t.get("tp") and t.get("sl") and abs(t["sl"] - entry) > 0:
+                    risk = abs(entry - t["sl"])
+                    progress = abs(price - entry) / risk
+                    status = f" ({progress:.1f}R)"
+        except Exception:
+            pass
+        
+        tp_str = f"{t['tp']:.4f}" if t.get("tp") else "N/A"
+        entry_str = f"{t['entry']:.4f}" if t.get("entry") else "N/A"
+        
+        # Entry time
+        entry_time_str = ""
+        if t.get("entry_time"):
+            try:
+                from datetime import datetime, timezone
+                entry_time = datetime.fromisoformat(t["entry_time"])
+                if entry_time.tzinfo is None:
+                    entry_time = entry_time.replace(tzinfo=timezone.utc)
+                duration = datetime.now(timezone.utc) - entry_time
+                hours = int(duration.total_seconds() / 3600)
+                if hours > 24:
+                    days = hours // 24
+                    hours = hours % 24
+                    entry_time_str = f" ({days}d {hours}h)"
+                else:
+                    entry_time_str = f" ({hours}h)"
+            except Exception:
+                pass
+        
+        lines.append(
+            f"{count}. {emoji} {sym} ({t['htf']}){entry_time_str}\n"
+            f"   Entry: {entry_str} | PnL: {pnl_str}{status} | TP: {tp_str}"
+        )
+    
+    # Batasi jika terlalu banyak
+    if len(lines) > 50:
+        lines = lines[:47]
+        lines.append("\n... dan trade lainnya (gunakan /stats untuk detail)")
+    
+    text = "\n".join(lines)
+    
+    # ── Cek panjang pesan ──
+    if len(text) > 4000:
+        # Kirim ringkasan singkat
+        text = (
+            f"🔒 Breakeven Trades ({total_be} pair)\n"
+            f"🟢 Bullish: {bullish_count} | 🔴 Bearish: {bearish_count}\n"
+            f"📊 Rata-rata PnL: {avg_pnl:+.2f}%\n\n"
+            f"⚠️ Terlalu banyak data untuk ditampilkan.\n"
+            f"Gunakan command /stats untuk detail lengkap."
+        )
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔄 Refresh", callback_data="mon_be_trades")
+        ]])
+    )
+
     # ── NAVIGASI TRADE (MASIH DI DALAM BLOK elif yang SAMA) ──   
     
     elif data == "trade_next":
@@ -1424,6 +1553,7 @@ async def show_trades_page(update, context, query):
             "sl": sl_str,
             "tp": tp_str,
             "entry_time": entry_time_str,
+            "breakeven_triggered": t.get("breakeven_triggered", False),
         })
     
     # ── Pagination ──
@@ -1448,13 +1578,16 @@ async def show_trades_page(update, context, query):
         "",
         "📋 Daftar trade:",
     ]
+
+for t in page_trades:
+    # Tambahkan indikator breakeven
+    be_indicator = " 🔒" if t.get("breakeven_triggered", False) else ""
     
-    for t in page_trades:
-        lines.append(
-            f"{t['num']}. {t['emoji']} {t['symbol']} ({t['htf']}){t['entry_time']} | "
-            f"PnL: {t['pnl']}{t['status']} | "
-            f"SL: {t['sl']} | TP: {t['tp']}"
-        )
+    lines.append(
+        f"{t['num']}. {t['emoji']} {t['symbol']} ({t['htf']}){t['entry_time']}{be_indicator} | "
+        f"PnL: {t['pnl']}{t['status']} | "
+        f"SL: {t['sl']} | TP: {t['tp']}"
+    )
     
     if total_trades > items_per_page:
         lines.append(f"\nHalaman {current_page + 1} dari {total_pages} (total {total_trades} trade)")
@@ -1696,8 +1829,9 @@ async def on_startup(app):
                 entry = float(alert["entry_price"])
                 sl = float(alert["invalidation"])
                 zone_type = alert["zone_type"]
-
                 entry_time=alert.get("entry_time")
+
+                breakeven_triggered = False
 
                 # Kalau TP tidak tersimpan di DB, hitung ulang dari R:R
                 if alert["target"]:
@@ -1717,6 +1851,7 @@ async def on_startup(app):
                     "zone_type": zone_type,
                     "htf": alert["htf"],
                     "entry_time": entry_time,
+                    "breakeven_triggered": breakeven_triggered,
                 }
 
                 # Update DB kalau TP sebelumnya NULL
