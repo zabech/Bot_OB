@@ -1220,7 +1220,6 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     elif data == "mon_be_trades":
-    """Tampilkan daftar trade yang SL-nya sudah di breakeven."""
     # Cari trade dengan breakeven_triggered = True
     be_trades = {}
     for sym, t in active_trades.items():
