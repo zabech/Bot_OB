@@ -16,6 +16,7 @@ import db
 import ob_core
 from ob_core import calculate_atr
 from datetime import datetime, timezone
+from admin import register_admin_handlers
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
@@ -1774,6 +1775,8 @@ def main():
 
     logger.info("Bot mulai polling...")
     app.run_polling()
+    
+    register_admin_handlers(app)
 
 
 if __name__ == "__main__":
