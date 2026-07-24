@@ -1754,6 +1754,8 @@ def main():
         )
 
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
+    
+    register_admin_handlers(app)
 
     # Command handlers (tetap tersedia untuk power user)
     app.add_handler(CommandHandler("start", start))
@@ -1775,9 +1777,6 @@ def main():
 
     logger.info("Bot mulai polling...")
     app.run_polling()
-    
-    register_admin_handlers(app)
-
-
+        
 if __name__ == "__main__":
     main()
