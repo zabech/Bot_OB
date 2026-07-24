@@ -13,6 +13,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     ConversationHandler, MessageHandler, filters, ContextTypes
 )
+from admin import register_admin_handlers
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import db
@@ -1752,6 +1753,8 @@ def main():
     
     register_admin_handlers(app)
     register_trading_handlers(app)
+
+    register_admin_handlers(app)
 
     # Command handlers (tetap tersedia untuk power user)
     app.add_handler(CommandHandler("start", start))
