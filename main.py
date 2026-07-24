@@ -20,7 +20,6 @@ import db
 import ob_core
 from ob_core import calculate_atr
 from datetime import datetime, timezone
-from admin import register_admin_handlers
 from trading_handlers import register_trading_handlers
 
 # State untuk ConversationHandler
