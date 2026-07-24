@@ -708,15 +708,6 @@ async def start(update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_keyboard()
     )
 
-async def pairs_now(update, context: ContextTypes.DEFAULT_TYPE):
-    symbols = get_active_symbols()
-    if not symbols:
-        await update.message.reply_text("Daftar pair belum tersedia, coba lagi sebentar.")
-        return
-    await update.message.reply_text(
-        f"Memantau {len(symbols)} pair:\n" + ", ".join(symbols)
-    )
-
 async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
