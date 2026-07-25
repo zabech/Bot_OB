@@ -21,6 +21,7 @@ import ob_core
 from ob_core import calculate_atr
 from datetime import datetime, timezone
 from trading_handlers import register_trading_handlers
+from status import register_status_handlers
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
@@ -1677,6 +1678,7 @@ def main():
     
     register_admin_handlers(app)
     register_trading_handlers(app)
+    register_admin_handlers(app)
 
     # Command handlers (tetap tersedia untuk power user)
     app.add_handler(CommandHandler("start", start))
