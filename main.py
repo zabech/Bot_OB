@@ -1682,11 +1682,7 @@ def main():
 
     # Command handlers (tetap tersedia untuk power user)
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("pairs", pairs_now))
-    app.add_handler(CommandHandler("zones", zones_now))
-    app.add_handler(CommandHandler("stats", stats_now))
-    app.add_handler(CommandHandler("backtest", backtest_command))
-
+    
     # Inline keyboard callback
     app.add_handler(CallbackQueryHandler(inline_callback))
 
