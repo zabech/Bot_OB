@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
-
 load_dotenv()
+from config import *
 import os
 import time
 import logging
