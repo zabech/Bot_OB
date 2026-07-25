@@ -1,15 +1,5 @@
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler
-import db
+from telegram.ext import Application
 
-def register_trading_handlers(app):
-    app.add_handler(CommandHandler("pairs", pairs_now))
-    
-async def pairs_now(update, context: ContextTypes.DEFAULT_TYPE):
-    symbols = get_active_symbols()
-    if not symbols:
-        await update.message.reply_text("Daftar pair belum tersedia, coba lagi sebentar.")
-        return
-    await update.message.reply_text(
-        f"Memantau {len(symbols)} pair:\n" + ", ".join(symbols)
-    )
+def register_trading_handlers(app: Application):
+    # Handler trading akan dipindahkan ke sini secara bertahap.
+    pass
