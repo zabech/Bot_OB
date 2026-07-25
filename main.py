@@ -1762,8 +1762,6 @@ def main():
     register_admin_handlers(app)
     register_trading_handlers(app)
 
-    register_admin_handlers(app)
-
     # Command handlers (tetap tersedia untuk power user)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pairs", pairs_now))
