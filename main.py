@@ -42,6 +42,10 @@ from keyboards import (
     backtest_keyboard,
     pengaturan_keyboard,
 )
+from backtest_handlers import (
+    backtest_command,
+    run_backtest_async,
+)
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
