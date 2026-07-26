@@ -23,6 +23,13 @@ from datetime import datetime, timezone
 from trading_handlers import register_trading_handlers
 from status import register_status_handlers
 from zones import zones_now
+from core_utils import (
+    get_top_volume_pairs,
+    get_active_symbols,
+    fetch_klines_df,
+    detect_order_blocks,
+    ltf_shows_reaction,
+)
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
