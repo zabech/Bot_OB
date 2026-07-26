@@ -132,3 +132,170 @@ async def run_backtest_async(symbol: str, months: int) -> str:
         )
     except Exception as e:
         return f"Gagal backtest {symbol}: {e}"
+
+async def backtest_command(update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /backtest                    -> BTC-USDT-SWAP, 1 bulan
+    /backtest ETH-USDT-SWAP      -> 1 pair custom, 1 bulan
+    /backtest ETH-USDT-SWAP 3    -> 1 pair custom, 3 bulan
+    """
+    args = context.args
+    symbol = args[0].upper() if args else "BTC-USDT-SWAP"
+    try:
+        months = int(args[1]) if len(args) >= 2 else 1
+        months = max(1, min(months, 6))
+    except ValueError:
+        await update.message.reply_text("Format: /backtest SYMBOL BULAN\nContoh: /backtest BTC-USDT-SWAP 3")
+        return
+
+    await update.message.reply_text(
+        f"⏳ Memulai backtest {symbol}, {months} bulan...\n"
+        f"HTF: {', '.join(HTF_LIST)} | LTF: {LTF}\n"
+        f"Estimasi waktu: 1-3 menit, mohon tunggu."
+    )
+
+    try:
+        from datetime import datetime, timedelta, timezone
+        from collections import defaultdict
+
+        end_ts_ms = int(time.time() * 1000)
+        start_ts_ms = int((datetime.now(timezone.utc) - timedelta(days=months * 30)).timestamp() * 1000)
+
+        ltf_candles = ob_core.fetch_full_history(symbol, LTF, start_ts_ms, end_ts_ms)
+        if hasattr(ltf_candles, 'to_dict'):
+            ltf_list = ltf_candles.to_dict("records")
+        else:
+            ltf_list = ltf_candles
+
+        if len(ltf_list) < LOOKBACK_CANDLES:
+            await update.message.reply_text(f"Data tidak cukup untuk {symbol}. Coba pair lain.")
+            return
+
+        all_results = []
+        seen_zones = set()
+
+        for htf in HTF_LIST:
+            htf_data = ob_core.fetch_full_history(symbol, htf, start_ts_ms, end_ts_ms)
+            if hasattr(htf_data, 'to_dict'):
+                htf_list = htf_data.to_dict("records")
+            else:
+                htf_list = htf_data
+
+            if len(htf_list) < LOOKBACK_CANDLES + 10:
+                continue
+
+            for end_idx in range(LOOKBACK_CANDLES, len(htf_list)):
+                window = htf_list[end_idx - LOOKBACK_CANDLES:end_idx]
+                
+                # ⬇️ UPDATE DI SINI ⬇️
+                zones = ob_core.detect_order_blocks(
+                    window, 
+                    MAX_ACTIVE_ZONES_PER_TF, 
+                    IMPULSE_MIN_PERCENT, 
+                    VOLUME_MULTIPLIER,
+                    require_bos=REQUIRE_BOS,
+                    require_fvg=REQUIRE_FVG,
+                    mitigation_50pct=MITIGATION_50PCT,
+                    swing_lookback=SWING_LOOKBACK,
+                    use_atr_impulse=USE_ATR_IMPULSE,
+                    impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER
+                )
+                # ⬆️ UPDATE DI SINI ⬆️
+                
+                if not zones:
+                    continue
+
+                current_htf_ts = htf_list[end_idx]["ts"]
+                current_price = htf_list[end_idx]["close"]
+
+                for zone in zones:
+                    zone_key = (zone["type"], round(zone["top"], 8), round(zone["bottom"], 8))
+                    if zone_key in seen_zones:
+                        continue
+                    if not (zone["bottom"] <= current_price <= zone["top"]):
+                        continue
+
+                    ltf_slice = [c for c in ltf_list if c["ts"] <= current_htf_ts][-3:]
+                    if len(ltf_slice) < 3:
+                        continue
+                    if not ob_core.ltf_shows_reaction(ltf_slice, zone):
+                        continue
+
+                    seen_zones.add(zone_key)
+
+                    # SL berbasis ATR
+                    sl, _ = calculate_sl_with_atr(zone, current_price, window)
+                    risk = abs(current_price - sl)
+                    if risk == 0:
+                        continue
+
+                    if zone["type"] == "bullish":
+                        target = current_price + risk * RISK_REWARD_RATIO
+                        invalidation = sl
+                    else:
+                        target = current_price - risk * RISK_REWARD_RATIO
+                        invalidation = sl
+
+                    future = [c for c in ltf_list if c["ts"] > current_htf_ts][:200]
+                    outcome = "unresolved"
+                    for c in future:
+                        if zone["type"] == "bullish":
+                            if c["high"] >= target:
+                                outcome = "win"
+                                break
+                            if c["low"] <= invalidation:
+                                outcome = "loss"
+                                break
+                        else:
+                            if c["low"] <= target:
+                                outcome = "win"
+                                break
+                            if c["high"] >= invalidation:
+                                outcome = "loss"
+                                break
+
+                    all_results.append({"htf": htf, "zone_type": zone["type"], "outcome": outcome})
+        
+        # Buat ringkasan
+        total = len(all_results)
+        if total == 0:
+            await update.message.reply_text(
+                f"Backtest {symbol} ({months} bulan) selesai.\nTidak ada sinyal yang terbentuk."
+            )
+            return
+
+        win = sum(1 for r in all_results if r["outcome"] == "win")
+        loss = sum(1 for r in all_results if r["outcome"] == "loss")
+        unresolved = sum(1 for r in all_results if r["outcome"] == "unresolved")
+        resolved = win + loss
+        win_rate = f"{win / resolved * 100:.1f}%" if resolved > 0 else "N/A"
+
+        by_htf = defaultdict(lambda: {"win": 0, "loss": 0, "total": 0})
+        for r in all_results:
+            by_htf[r["htf"]]["total"] += 1
+            if r["outcome"] == "win":
+                by_htf[r["htf"]]["win"] += 1
+            elif r["outcome"] == "loss":
+                by_htf[r["htf"]]["loss"] += 1
+
+        htf_lines = []
+        for htf, g in sorted(by_htf.items()):
+            res = g["win"] + g["loss"]
+            wr = f"{g['win'] / res * 100:.1f}%" if res > 0 else "N/A"
+            htf_lines.append(f"  {htf}: {g['total']} sinyal, win rate {wr}")
+
+        await update.message.reply_text(
+            f"📊 Hasil Backtest {symbol} ({months} bulan)\n"
+            f"HTF: {', '.join(HTF_LIST)} | LTF: {LTF}\n\n"
+            f"Total sinyal : {total}\n"
+            f"Win          : {win}\n"
+            f"Loss         : {loss}\n"
+            f"Unresolved   : {unresolved}\n"
+            f"Win rate     : {win_rate} (dari {resolved} resolved)\n\n"
+            f"Per timeframe:\n" + "\n".join(htf_lines) + "\n\n"
+            f"*SL berbasis ATR{ATR_PERIOD} × {ATR_MULTIPLIER} | TP R:R 1:{RISK_REWARD_RATIO:.0f}"
+        )
+
+    except Exception as e:
+        logger.error(f"Backtest command error: {e}")
+        await update.message.reply_text(f"Gagal menjalankan backtest: {e}")
