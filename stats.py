@@ -2,6 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 import db
 import logging
+from config import CHAT_ID
 
 logger = logging.getLogger(__name__)
 
