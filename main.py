@@ -46,6 +46,10 @@ from backtest_handlers import (
     backtest_command,
     run_backtest_async,
 )
+from scanner import (
+    check_active_trade,
+    check_symbol,
+)
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
