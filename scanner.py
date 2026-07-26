@@ -117,6 +117,6 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
             db.resolve_alert_by_symbol(symbol, status, pnl_pct=pnl_pct)
         except Exception:
             pass
-        return false
+        return False
         
     return True
