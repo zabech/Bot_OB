@@ -35,6 +35,13 @@ from stats import (
     stats_now,
     send_daily_summary,
 )
+from keyboards import (
+    main_keyboard,
+    monitoring_keyboard,
+    analisis_keyboard,
+    backtest_keyboard,
+    pengaturan_keyboard,
+)
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
