@@ -22,6 +22,7 @@ from ob_core import calculate_atr
 from datetime import datetime, timezone
 from trading_handlers import register_trading_handlers
 from status import register_status_handlers
+from zones import zones_now
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
