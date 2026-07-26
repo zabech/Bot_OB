@@ -5,6 +5,11 @@ from config import *
 
 logger = logging.getLogger(__name__)
 
+top_pairs_cache = {
+    "symbols": [],
+    "last_refresh": 0,
+}
+
 def get_top_volume_pairs(n: int, quote: str) -> list:
     return ob_core.get_top_volume_pairs(n, quote, MIN_VOLUME_USD)
 
