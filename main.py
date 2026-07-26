@@ -1397,23 +1397,7 @@ async def run_backtest_async(symbol: str, months: int) -> str:
         htf_lines = []
         for htf, g in sorted(by_htf.items()):
             res = g["win"] + g["loss"]
-            wr = f"{g['win'] / res * 100:.1f}%" if res > 0 else "N/A"
-            htf_lines.append(f"  {htf}: {g['total']} sinyal, WR {wr}")
-
-        return (
-            f"📊 Hasil Backtest {symbol} ({months} bln)\n\n"
-            f"Total sinyal : {total}\n"
-            f"Win          : {win}\n"
-            f"Loss         : {loss}\n"
-            f"Unresolved   : {unresolved}\n"
-            f"Win rate     : {win_rate} ({resolved} resolved)\n\n"
-            f"Per timeframe:\n" + "\n".join(htf_lines) + "\n\n"
-            f"*SL berbasis ATR{ATR_PERIOD} × {ATR_MULTIPLIER} | TP R:R 1:{RISK_REWARD_RATIO:.0f}"
-        )
-    except Exception as e:
-        return f"Gagal backtest {symbol}: {e}"
-
-
+         
 async def on_startup(app):
     """Dipanggil setelah event loop bot aktif — aman untuk start scheduler di sini."""
     logger.info("=" * 50)
