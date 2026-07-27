@@ -52,21 +52,12 @@ from scanner import (
     check_open_alerts,
     check_and_alert,
 )
+from utils import interval_to_seconds
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
 WAITING_SYMBOL_BACKTEST = 2
 WAITING_MONTHS_BACKTEST = 3
-
-def interval_to_seconds(interval: str) -> int:
-    """Konversi string interval OKX ke detik."""
-    mapping = {
-        "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
-        "1H": 3600, "2H": 7200, "4H": 14400, "6H": 21600, "12H": 43200,
-        "1D": 86400, "1W": 604800,
-    }
-    return mapping.get(interval, 3600)
-
 
 def candle_is_closed(candles, interval: str) -> bool:
     """
