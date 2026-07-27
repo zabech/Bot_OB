@@ -36,3 +36,6 @@ def candle_is_closed(candles, interval: str) -> bool:
         return now_ms >= candle_close_time_ms
     except Exception:
         return True
+
+def merge_zone_state(old_zones: list, new_zones: list) -> list:
+    return ob_core.merge_zone_state(old_zones, new_zones)
