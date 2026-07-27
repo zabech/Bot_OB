@@ -39,3 +39,32 @@ def candle_is_closed(candles, interval: str) -> bool:
 
 def merge_zone_state(old_zones: list, new_zones: list) -> list:
     return ob_core.merge_zone_state(old_zones, new_zones)
+
+def format_duration(entry_time_str: str) -> str:
+    """Hitung durasi dari entry_time sampai sekarang dan format menjadi string."""
+    try:
+        from datetime import datetime, timezone
+        
+        # Parse entry_time
+        entry_time = datetime.fromisoformat(entry_time_str)
+        now = datetime.now(timezone.utc)
+        
+        # Jika entry_time naive (tanpa timezone), asumsikan UTC
+        if entry_time.tzinfo is None:
+            entry_time = entry_time.replace(tzinfo=timezone.utc)
+        
+        delta = now - entry_time
+        
+        total_seconds = delta.total_seconds()
+        days = int(total_seconds // 86400)
+        hours = int((total_seconds % 86400) // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        
+        if days > 0:
+            return f"{days}d {hours}h {minutes}m"
+        elif hours > 0:
+            return f"{hours}h {minutes}m"
+        else:
+            return f"{minutes}m"
+    except Exception:
+        return "N/A"
