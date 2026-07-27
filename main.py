@@ -50,6 +50,7 @@ from scanner import (
     check_active_trade,
     check_symbol,
     check_open_alerts,
+    check_and_alert,
 )
 
 # State untuk ConversationHandler
@@ -485,33 +486,6 @@ async def send_health_alert(app, failed: int, total: int):
         last_health_alert_time["ts"] = now
     except Exception as e:
         logger.error(f"Gagal kirim health alert: {e}")
-
-
-async def check_and_alert(app):
-    symbols = get_active_symbols()
-    if not symbols:
-        logger.warning("Belum ada daftar pair untuk dipantau.")
-        return
-
-    logger.info(f"Mulai scan {len(symbols)} pair (batch size {BATCH_SIZE})...")
-
-    failed_count = 0
-    for i in range(0, len(symbols), BATCH_SIZE):
-        batch = symbols[i:i + BATCH_SIZE]
-        results = await asyncio.gather(*(check_symbol(app, s) for s in batch))
-        failed_count += results.count(False)
-        if i + BATCH_SIZE < len(symbols):
-            await asyncio.sleep(BATCH_DELAY_SECONDS)
-
-    total = len(symbols)
-    failure_pct = (failed_count / total * 100) if total else 0
-    logger.info(f"Scan selesai: {total - failed_count}/{total} pair berhasil ({failure_pct:.0f}% gagal).")
-
-    if failure_pct >= FAILURE_ALERT_THRESHOLD_PERCENT:
-        await send_health_alert(app, failed_count, total)
-
-    await check_open_alerts()
-
 
 # ── Command handlers ─────────────────────────────────────────
 async def start(update, context: ContextTypes.DEFAULT_TYPE):
