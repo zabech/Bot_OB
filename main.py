@@ -55,16 +55,13 @@ from scanner import (
 from utils import (
     interval_to_seconds,
     candle_is_closed,
+    merge_zone_state,
 )
 
 # State untuk ConversationHandler
 WAITING_SYMBOL_ZONES = 1
 WAITING_SYMBOL_BACKTEST = 2
 WAITING_MONTHS_BACKTEST = 3
-
-def merge_zone_state(old_zones: list, new_zones: list) -> list:
-    return ob_core.merge_zone_state(old_zones, new_zones)
-
 
 def calculate_invalidation(zone: dict) -> float:
     return ob_core.calculate_invalidation(zone)
