@@ -56,6 +56,7 @@ from utils import (
     interval_to_seconds,
     candle_is_closed,
     merge_zone_state,
+    format_duration,
 )
 
 # State untuk ConversationHandler
@@ -162,35 +163,6 @@ def trend_allows_zone(zone: dict, current_price: float, htf_candles) -> bool:
     if zone["type"] == "bearish" and current_price < ma:
         return True   # harga di bawah MA -> downtrend -> bearish OB valid
     return False
-
-def format_duration(entry_time_str: str) -> str:
-    """Hitung durasi dari entry_time sampai sekarang dan format menjadi string."""
-    try:
-        from datetime import datetime, timezone
-        
-        # Parse entry_time
-        entry_time = datetime.fromisoformat(entry_time_str)
-        now = datetime.now(timezone.utc)
-        
-        # Jika entry_time naive (tanpa timezone), asumsikan UTC
-        if entry_time.tzinfo is None:
-            entry_time = entry_time.replace(tzinfo=timezone.utc)
-        
-        delta = now - entry_time
-        
-        total_seconds = delta.total_seconds()
-        days = int(total_seconds // 86400)
-        hours = int((total_seconds % 86400) // 3600)
-        minutes = int((total_seconds % 3600) // 60)
-        
-        if days > 0:
-            return f"{days}d {hours}h {minutes}m"
-        elif hours > 0:
-            return f"{hours}h {minutes}m"
-        else:
-            return f"{minutes}m"
-    except Exception:
-        return "N/A"
 
 async def check_active_trade(app, symbol: str, current_price: float) -> bool:
     """
