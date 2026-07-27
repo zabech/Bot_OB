@@ -1,5 +1,11 @@
 from telegram import Update
 from telegram.ext import ContextTypes
+from keyboards import (
+    monitoring_keyboard,
+    analisis_keyboard,
+    backtest_keyboard,
+    pengaturan_keyboard,
+)
 
 async def menu_router(update, context: ContextTypes.DEFAULT_TYPE):
     """Route pesan teks dari Reply Keyboard ke sub-menu inline."""
