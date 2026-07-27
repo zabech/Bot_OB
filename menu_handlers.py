@@ -1,10 +1,14 @@
 from telegram import Update
 from telegram.ext import ContextTypes
+
+import db
+from config import *
 from keyboards import (
     monitoring_keyboard,
     analisis_keyboard,
     backtest_keyboard,
     pengaturan_keyboard,
+    main_keyboard,
 )
 
 async def menu_router(update, context: ContextTypes.DEFAULT_TYPE):
