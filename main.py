@@ -61,6 +61,7 @@ from utils import (
 from menu_handlers import (
     menu_router,
     inline_callback,
+    text_input_handler,
 )
 
 # State untuk ConversationHandler
@@ -616,68 +617,6 @@ async def show_trades_page(update, context, query):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def text_input_handler(update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle input teks dari user setelah diminta (zones, price, backtest custom)."""
-    text = update.message.text.strip().upper()
-    waiting = context.user_data.get("waiting_for")
-
-    if waiting == "zones":
-        context.user_data.pop("waiting_for", None)
-        await update.message.reply_text(f"🔍 Mengambil data zona OB untuk {text}...")
-        try:
-            ltf_df = fetch_klines_df(text, LTF, LOOKBACK_CANDLES)
-            if hasattr(ltf_df, 'iloc'):
-                current_price = float(ltf_df[-1]["close"] if isinstance(ltf_df, list) else ltf_df.iloc[-1]["close"])
-            else:
-                current_price = float(ltf_df[-1]["close"])
-            lines = [f"Harga {text} sekarang: {current_price}\n"]
-            for htf in HTF_LIST:
-                htf_df = fetch_klines_df(text, htf, LOOKBACK_CANDLES)
-                zones = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
-                lines.append(f"\n📊 Timeframe {htf}:")
-                if not zones:
-                    lines.append("  Belum ada order block terdeteksi.")
-                    continue
-                for z in zones:
-                    emoji = "🟢" if z["type"] == "bullish" else "🔴"
-                    lines.append(f"  {emoji} {z['type'].capitalize()}: {z['bottom']} - {z['top']}")
-            await update.message.reply_text("\n".join(lines), reply_markup=main_keyboard())
-        except Exception as e:
-            await update.message.reply_text(f"Gagal ambil data untuk {text}: {e}", reply_markup=main_keyboard())
-
-    elif waiting == "price":
-        context.user_data.pop("waiting_for", None)
-        try:
-            price = get_current_price(text)
-            if price:
-                await update.message.reply_text(f"💰 {text}\nHarga sekarang: {price}", reply_markup=main_keyboard())
-            else:
-                await update.message.reply_text(f"Gagal ambil harga {text}.", reply_markup=main_keyboard())
-        except Exception as e:
-            await update.message.reply_text(f"Error: {e}", reply_markup=main_keyboard())
-
-    elif waiting == "backtest_symbol":
-        context.user_data["backtest_symbol"] = text
-        context.user_data["waiting_for"] = "backtest_months"
-        await update.message.reply_text(
-            f"Pair: {text}\nBerapa bulan data historis? (1-6)\nKetik angkanya:"
-        )
-
-    elif waiting == "backtest_months":
-        context.user_data.pop("waiting_for", None)
-        symbol = context.user_data.pop("backtest_symbol", "BTC-USDT-SWAP")
-        try:
-            months = max(1, min(int(text), 6))
-        except ValueError:
-            months = 1
-        await update.message.reply_text(f"⏳ Memulai backtest {symbol}, {months} bulan...\nMohon tunggu 1-3 menit.")
-        result_text = await run_backtest_async(symbol, months)
-        await update.message.reply_text(result_text, reply_markup=main_keyboard())
-
-    else:
-        # Bukan input yang ditunggu, abaikan (menu router yang handle)
-        pass
-         
 async def on_startup(app):
     """Dipanggil setelah event loop bot aktif — aman untuk start scheduler di sini."""
     logger.info("=" * 50)
