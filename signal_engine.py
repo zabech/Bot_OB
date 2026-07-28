@@ -5,7 +5,7 @@ async def send_signal(
     current_price,
     htf,
     htf_candles_list,
-)
+):
 
 logger.info(f"[{symbol}] LOLOS SEMUA FILTER — mengirim alert!")
 
