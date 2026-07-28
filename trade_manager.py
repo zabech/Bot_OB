@@ -116,3 +116,42 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
         return False
         
     return True
+
+async def check_open_alerts():
+    """Cek semua alert berstatus 'open' di database: apakah harga sekarang sudah
+    mencapai target (hit_target) atau malah menembus invalidasi (invalidated).
+    Dipanggil tiap siklus scan agar histori tetap terupdate."""
+    try:
+        open_alerts = db.get_open_alerts()
+    except Exception as e:
+        logger.error(f"Gagal ambil open alerts dari database: {e}")
+        return
+
+    if not open_alerts:
+        return
+
+    # Group by symbol biar tidak fetch harga berkali-kali untuk symbol yang sama
+    symbols_needed = {a["symbol"] for a in open_alerts}
+    current_prices = {}
+    for symbol in symbols_needed:
+        try:
+            df = fetch_klines_df(symbol, LTF, 2)
+            current_prices[symbol] = float(df[-1]["close"] if isinstance(df, list) else df.iloc[-1]["close"])
+        except Exception as e:
+            logger.warning(f"Gagal ambil harga terkini {symbol} untuk cek open alert: {e}")
+
+    for alert in open_alerts:
+        price = current_prices.get(alert["symbol"])
+        if price is None:
+            continue
+
+        if alert["zone_type"] == "bullish":
+            if alert["target"] is not None and price >= alert["target"]:
+                db.resolve_alert(alert["id"], "hit_target")
+            elif price <= alert["invalidation"]:
+                db.resolve_alert(alert["id"], "invalidated")
+        else:  # bearish
+            if alert["target"] is not None and price <= alert["target"]:
+                db.resolve_alert(alert["id"], "hit_target")
+            elif price >= alert["invalidation"]:
+                db.resolve_alert(alert["id"], "invalidated")
