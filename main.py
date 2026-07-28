@@ -14,8 +14,6 @@ from telegram.ext import (
     ConversationHandler, MessageHandler, filters, ContextTypes
 )
 from admin import register_admin_handlers
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 import db
 import ob_core
 from ob_core import calculate_atr
@@ -33,7 +31,6 @@ from core_utils import (
 from stats import (
     format_stats_text,
     stats_now,
-    send_daily_summary,
 )
 from keyboards import (
     main_keyboard,
@@ -50,7 +47,6 @@ from scanner import (
     check_active_trade,
     check_symbol,
     check_open_alerts,
-    check_and_alert,
 )
 from utils import (
     interval_to_seconds,
