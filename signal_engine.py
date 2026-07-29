@@ -7,7 +7,7 @@ async def send_signal(
     htf_candles_list,
 ):
 
-logger.info(f"[{symbol}] LOLOS SEMUA FILTER — mengirim alert!")
+    logger.info(f"[{symbol}] LOLOS SEMUA FILTER — mengirim alert!")
 
     emoji = "🟢" if zone["type"] == "bullish" else "🔴"
     label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
