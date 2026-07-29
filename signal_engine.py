@@ -69,3 +69,12 @@ async def send_signal(
     except Exception as e:
         logger.error(f"Gagal simpan alert ke database: {e}")
 
+async def process_symbol(
+    app,
+    symbol,
+    current_price,
+    ltf_df,
+    htf,
+    htf_df,
+    active_zones,
+):
