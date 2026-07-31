@@ -78,3 +78,35 @@ async def process_symbol(
     htf_df,
     active_zones,
 ):
+    detected = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
+    detected = merge_zone_state(active_zones[symbol].get(htf, []), detected)
+    active_zones[symbol][htf] = detected
+
+    if hasattr(htf_df, 'to_dict'):
+        htf_candles_list = htf_df.to_dict("records")
+    else:
+        htf_candles_list = htf_df
+
+    for zone in detected:
+        if zone["mitigated"]:
+            logger.info(f"[{symbol}] Zona {zone['type']} sudah mitigated, skip.")
+            continue
+
+        price_in_zone = zone["bottom"] <= current_price <= zone["top"]
+        if not price_in_zone:
+            continue
+
+        logger.info(f"[{symbol}] Harga {current_price} MASUK zona {zone['type']} di {htf}.")
+
+        if not candle_is_closed(ltf_df, LTF):
+            logger.info(f"[{symbol}] BLOCKED — candle LTF belum close.")
+            continue
+
+        if not ltf_shows_reaction(ltf_df, zone):
+            logger.info(f"[{symbol}] BLOCKED — ltf_shows_reaction gagal.")
+            continue
+
+        if not trend_allows_zone(zone, current_price, htf_candles_list):
+            logger.info(f"[{symbol}] BLOCKED — zona berlawanan dengan trend.")
+            zone["mitigated"] = True
+            continue
