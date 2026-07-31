@@ -25,27 +25,22 @@ async def check_symbol(app, symbol: str) -> bool:
             return True
 
         for htf in HTF_LIST:
-            htf_df = fetch_klines_df(symbol, htf, LOOKBACK_CANDLES)
+            htf_df = fetch_klines_df(
+                symbol,
+                htf,
+                LOOKBACK_CANDLES
+            )
 
-        await process_symbol(
-        app=app,
-        symbol=symbol,
-        current_price=current_price,
-        ltf_df=ltf_df,
-        htf=htf,
-        htf_df=htf_df,
-        active_zones=active_zones,
-        )
-        
-        await send_signal(
-        app=app,
-        symbol=symbol,
-        zone=zone,
-        current_price=current_price,
-        htf=htf,
-        htf_candles_list=htf_candles_list,
-        )
-
+            await process_symbol(
+                app=app,
+                symbol=symbol,
+                current_price=current_price,
+                ltf_df=ltf_df,
+                htf=htf,
+                htf_df=htf_df,
+                active_zones=active_zones,
+            )
+               
         return True
 
     except Exception as e:
