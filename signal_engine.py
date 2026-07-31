@@ -94,6 +94,12 @@ def prepare_zones(
 
     return detected
 
+def normalize_htf_candles(htf_df):
+    """Ubah HTF dataframe menjadi list candle."""
+    if hasattr(htf_df, "to_dict"):
+        return htf_df.to_dict("records")
+    return htf_df
+
 async def validate_zone(
     symbol: str,
     zone: dict,
@@ -144,10 +150,7 @@ async def process_symbol(
         active_zones,
     )
     
-    if hasattr(htf_df, 'to_dict'):
-        htf_candles_list = htf_df.to_dict("records")
-    else:
-        htf_candles_list = htf_df
+    htf_candles_list = normalize_htf_candles(htf_df)
 
     for zone in detected:
         if not await validate_zone(
