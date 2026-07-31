@@ -90,7 +90,7 @@ async def send_signal(
         zone,
         current_price,
         htf_candles_list,
-    )
+    ),
 
     message = build_signal_message(
         symbol,
