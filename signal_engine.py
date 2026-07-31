@@ -94,6 +94,40 @@ def prepare_zones(
 
     return detected
 
+async def validate_zone(
+    symbol: str,
+    zone: dict,
+    current_price: float,
+    ltf_df,
+    htf_candles_list,
+):
+    """
+    Validasi apakah zona layak mengirim sinyal.
+    Return True jika lolos semua filter.
+    """
+
+    if zone["mitigated"]:
+        logger.info(f"[{symbol}] Zona {zone['type']} sudah mitigated, skip.")
+        return False
+
+    if not (zone["bottom"] <= current_price <= zone["top"]):
+        return False
+
+    if not candle_is_closed(ltf_df, LTF):
+        logger.info(f"[{symbol}] BLOCKED — candle LTF belum close.")
+        return False
+
+    if not ltf_shows_reaction(ltf_df, zone):
+        logger.info(f"[{symbol}] BLOCKED — ltf_shows_reaction gagal.")
+        return False
+
+    if not trend_allows_zone(zone, current_price, htf_candles_list):
+        logger.info(f"[{symbol}] BLOCKED — zona berlawanan dengan trend.")
+        zone["mitigated"] = True
+        return False
+
+    return True
+
 async def process_symbol(
     app,
     symbol,
@@ -116,25 +150,11 @@ async def process_symbol(
         htf_candles_list = htf_df
 
     for zone in detected:
-        if zone["mitigated"]:
-            logger.info(f"[{symbol}] Zona {zone['type']} sudah mitigated, skip.")
-            continue
-
-        price_in_zone = zone["bottom"] <= current_price <= zone["top"]
-        if not price_in_zone:
-            continue
-
-        logger.info(f"[{symbol}] Harga {current_price} MASUK zona {zone['type']} di {htf}.")
-
-        if not candle_is_closed(ltf_df, LTF):
-            logger.info(f"[{symbol}] BLOCKED — candle LTF belum close.")
-            continue
-
-        if not ltf_shows_reaction(ltf_df, zone):
-            logger.info(f"[{symbol}] BLOCKED — ltf_shows_reaction gagal.")
-            continue
-
-        if not trend_allows_zone(zone, current_price, htf_candles_list):
-            logger.info(f"[{symbol}] BLOCKED — zona berlawanan dengan trend.")
-            zone["mitigated"] = True
-            continue
+        if not await validate_zone(
+            symbol,
+            zone,
+            current_price,
+            ltf_df,
+            htf_candles_list,
+        ):
+    continue
