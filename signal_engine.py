@@ -109,20 +109,6 @@ async def send_signal(
         signal,
     )
 
-    emoji = "🟢" if zone["type"] == "bullish" else "🔴"
-    label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
-    fvg_tag = " + FVG ⚡" if zone.get("has_fvg") else ""
-
-    session_name, session_quality, session_stars = get_session_info()
-
-    sl = signal["sl"]
-    sl_method = signal["sl_method"]
-    tp = signal["tp"]
-    risk = signal["risk"]
-    risk_pct = signal["risk_pct"]
-    atr_str = signal["atr_str"]
-    trend_text = signal["trend_text"]
-
     await send_telegram_alert(
         app,
         message,
@@ -239,6 +225,15 @@ async def process_symbol(
             htf_candles_list,
         ):
             continue
+
+        await send_signal(
+            app,
+            symbol,
+            zone,
+            current_price,
+            htf,
+            htf_candles_list,
+        )
 
 def save_active_trade(
     symbol,
