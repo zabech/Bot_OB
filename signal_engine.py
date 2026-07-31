@@ -69,6 +69,31 @@ async def send_signal(
     except Exception as e:
         logger.error(f"Gagal simpan alert ke database: {e}")
 
+def prepare_zones(
+    symbol: str,
+    htf: str,
+    htf_df,
+    active_zones,
+):
+    """
+    Deteksi dan sinkronkan order block untuk satu timeframe.
+    Return list zona aktif.
+    """
+
+    detected = detect_order_blocks(
+        htf_df,
+        MAX_ACTIVE_ZONES_PER_TF,
+    )
+
+    detected = merge_zone_state(
+        active_zones[symbol].get(htf, []),
+        detected,
+    )
+
+    active_zones[symbol][htf] = detected
+
+    return detected
+
 async def process_symbol(
     app,
     symbol,
@@ -78,10 +103,13 @@ async def process_symbol(
     htf_df,
     active_zones,
 ):
-    detected = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
-    detected = merge_zone_state(active_zones[symbol].get(htf, []), detected)
-    active_zones[symbol][htf] = detected
-
+    detected = prepare_zones(
+        symbol,
+        htf,
+        htf_df,
+        active_zones,
+    )
+    
     if hasattr(htf_df, 'to_dict'):
         htf_candles_list = htf_df.to_dict("records")
     else:
