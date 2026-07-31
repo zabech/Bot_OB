@@ -15,20 +15,19 @@ async def send_signal(
 
     session_name, session_quality, session_stars = get_session_info()
 
-    sl, sl_method = calculate_sl_with_atr(zone, current_price, htf_candles_list)
-    risk = abs(current_price - sl)
+    signal = build_signal_data(
+    zone,
+    current_price,
+    htf_candles_list,
+    )
 
-    if zone["type"] == "bullish":
-        tp = current_price + risk * RISK_REWARD_RATIO
-    else:
-        tp = current_price - risk * RISK_REWARD_RATIO
-
-    risk_pct = (risk / current_price * 100)
-    atr_val = calculate_atr(htf_candles_list, ATR_PERIOD)
-    atr_str = f"{atr_val:.4g}" if atr_val else "N/A"
-
-    ma_val = calculate_ma(htf_candles_list, MA_PERIOD)
-    trend_text = f"MA{MA_PERIOD}: {ma_val:.4g} ({'↑ Uptrend' if current_price > ma_val else '↓ Downtrend'})" if ma_val else "N/A"
+    sl = signal["sl"]
+    sl_method = signal["sl_method"]
+    tp = signal["tp"]
+    risk = signal["risk"]
+    risk_pct = signal["risk_pct"]
+    atr_str = signal["atr_str"]
+    trend_text = signal["trend_text"]
 
     await app.bot.send_message(
         chat_id=CHAT_ID,
