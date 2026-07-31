@@ -86,11 +86,20 @@ def build_signal_message(
     )
 
 async def send_signal(
+    app,
+    symbol,
+    zone,
+    current_price,
+    htf,
+    htf_candles_list,
+):
+    logger.info(f"[{symbol}] LOLOS SEMUA FILTER — mengirim alert!")
+
     signal = build_signal_data(
         zone,
         current_price,
         htf_candles_list,
-    ),
+    )
 
     message = build_signal_message(
         symbol,
@@ -99,9 +108,6 @@ async def send_signal(
         htf,
         signal,
     )
-):
-
-    logger.info(f"[{symbol}] LOLOS SEMUA FILTER — mengirim alert!")
 
     emoji = "🟢" if zone["type"] == "bullish" else "🔴"
     label = "BULLISH (Demand)" if zone["type"] == "bullish" else "BEARISH (Supply)"
