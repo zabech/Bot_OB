@@ -86,12 +86,19 @@ def build_signal_message(
     )
 
 async def send_signal(
-    app,
-    symbol,
-    zone,
-    current_price,
-    htf,
-    htf_candles_list,
+    signal = build_signal_data(
+        zone,
+        current_price,
+        htf_candles_list,
+    )
+
+    message = build_signal_message(
+        symbol,
+        zone,
+        current_price,
+        htf,
+        signal,
+    )
 ):
 
     logger.info(f"[{symbol}] LOLOS SEMUA FILTER — mengirim alert!")
@@ -102,12 +109,6 @@ async def send_signal(
 
     session_name, session_quality, session_stars = get_session_info()
 
-    signal = build_signal_data(
-    zone,
-    current_price,
-    htf_candles_list,
-    )
-
     sl = signal["sl"]
     sl_method = signal["sl_method"]
     tp = signal["tp"]
@@ -116,17 +117,9 @@ async def send_signal(
     atr_str = signal["atr_str"]
     trend_text = signal["trend_text"]
 
-    message = build_signal_message(
-        symbol,
-        zone,
-        current_price,
-        htf,
-        signal,
-    )
-
-    await app.bot.send_message(
-        chat_id=CHAT_ID,
-        text=message,
+    await send_telegram_alert(
+        app,
+        message,
     )
 
     zone["mitigated"] = True
@@ -279,3 +272,9 @@ def save_signal_to_db(
         )
     except Exception as e:
         logger.error(f"Gagal simpan alert ke database: {e}")
+
+async def send_telegram_alert(app, message):
+    await app.bot.send_message(
+        chat_id=CHAT_ID,
+        text=message,
+    )
