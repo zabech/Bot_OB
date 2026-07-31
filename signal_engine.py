@@ -132,27 +132,21 @@ async def send_signal(
     zone["mitigated"] = True
     logger.info(f"[{symbol}] Alert terkirim ke Telegram.")
 
-    # Simpan trade aktif
-    active_trades[symbol] = {
-        "entry": current_price,
-        "sl": sl,
-        "tp": tp,
-        "zone_type": zone["type"],
-        "htf": htf,
-        "entry_time": datetime.now(timezone.utc).isoformat(),
-    }
+    save_active_trade(
+        symbol,
+        zone,
+        current_price,
+        htf,
+        signal,
+    )
 
-    # Simpan ke database
-    try:
-        db.record_alert(
-            symbol=symbol, zone_type=zone["type"], htf=htf, ltf=LTF,
-            entry_price=current_price, zone_top=zone["top"], zone_bottom=zone["bottom"],
-            invalidation=sl,
-            target=tp,
-            entry_time=datetime.now(timezone.utc).isoformat(),
-        )
-    except Exception as e:
-        logger.error(f"Gagal simpan alert ke database: {e}")
+    save_signal_to_db(
+        symbol,
+        zone,
+        current_price,
+        htf,
+        signal,
+    )
 
 def prepare_zones(
     symbol: str,
@@ -246,3 +240,42 @@ async def process_symbol(
             htf_candles_list,
         ):
             continue
+
+def save_active_trade(
+    symbol,
+    zone,
+    current_price,
+    htf,
+    signal,
+):
+    active_trades[symbol] = {
+        "entry": current_price,
+        "sl": signal["sl"],
+        "tp": signal["tp"],
+        "zone_type": zone["type"],
+        "htf": htf,
+        "entry_time": datetime.now(timezone.utc).isoformat(),
+    }
+
+def save_signal_to_db(
+    symbol,
+    zone,
+    current_price,
+    htf,
+    signal,
+):
+    try:
+        db.record_alert(
+            symbol=symbol,
+            zone_type=zone["type"],
+            htf=htf,
+            ltf=LTF,
+            entry_price=current_price,
+            zone_top=zone["top"],
+            zone_bottom=zone["bottom"],
+            invalidation=signal["sl"],
+            target=signal["tp"],
+            entry_time=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception as e:
+        logger.error(f"Gagal simpan alert ke database: {e}")
