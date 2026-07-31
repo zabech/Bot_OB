@@ -51,6 +51,40 @@ def build_signal_data(
         "trend_text": trend_text,
     }
 
+def build_signal_message(
+    symbol,
+    zone,
+    current_price,
+    htf,
+    signal,
+):
+    emoji = "🟢" if zone["type"] == "bullish" else "🔴"
+
+    label = (
+        "BULLISH (Demand)"
+        if zone["type"] == "bullish"
+        else "BEARISH (Supply)"
+    )
+
+    fvg_tag = " + FVG ⚡ " if zone.get("has_fvg") else ""
+
+    session_name, session_quality, session_stars = get_session_info()
+
+    return (
+        f"{emoji} {symbol} memasuki Order Block {label}{fvg_tag}\n"
+        f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
+        f"Harga sekarang : {current_price}\n"
+        f"Zona           : {zone['bottom']} - {zone['top']}\n"
+        f"🛑 Stop Loss   : {signal['sl']:.4g} "
+        f"({signal['sl_method']}, ATR{ATR_PERIOD}={signal['atr_str']})\n"
+        f"🎯 Take Profit : {signal['tp']:.4g} "
+        f"(R:R 1:{RISK_REWARD_RATIO:.0f})\n"
+        f"⚠️ Risk        : {signal['risk_pct']:.2f}%\n"
+        f"📊 Trend ({htf}): {signal['trend_text']}\n"
+        f"🕐 Sesi        : {session_name} "
+        f"{session_stars} ({session_quality})"
+    )
+
 async def send_signal(
     app,
     symbol,
@@ -82,20 +116,19 @@ async def send_signal(
     atr_str = signal["atr_str"]
     trend_text = signal["trend_text"]
 
+    message = build_signal_message(
+        symbol,
+        zone,
+        current_price,
+        htf,
+        signal,
+    )
+
     await app.bot.send_message(
         chat_id=CHAT_ID,
-        text=(
-            f"{emoji} {symbol} memasuki Order Block {label}{fvg_tag}\n"
-            f"Timeframe zona: {htf} | Konfirmasi: {LTF}\n"
-            f"Harga sekarang : {current_price}\n"
-            f"Zona           : {zone['bottom']} - {zone['top']}\n"
-            f"🛑 Stop Loss   : {sl:.4g} ({sl_method}, ATR{ATR_PERIOD}={atr_str})\n"
-            f"🎯 Take Profit : {tp:.4g} (R:R 1:{RISK_REWARD_RATIO:.0f})\n"
-            f"⚠️ Risk        : {risk_pct:.2f}%\n"
-            f"📊 Trend ({htf}): {trend_text}\n"
-            f"🕐 Sesi        : {session_name} {session_stars} ({session_quality})"
-        ),
+        text=message,
     )
+
     zone["mitigated"] = True
     logger.info(f"[{symbol}] Alert terkirim ke Telegram.")
 
