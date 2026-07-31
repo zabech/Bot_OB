@@ -66,18 +66,6 @@ WAITING_SYMBOL_ZONES = 1
 WAITING_SYMBOL_BACKTEST = 2
 WAITING_MONTHS_BACKTEST = 3
 
-def calculate_invalidation(zone: dict) -> float:
-    return ob_core.calculate_invalidation(zone)
-
-
-def find_nearest_opposite_target(zone: dict, current_price: float, all_zones_for_symbol: dict) -> Optional[float]:
-    return ob_core.find_nearest_opposite_target(zone, current_price, all_zones_for_symbol)
-
-
-def calculate_risk_reward(zone: dict, current_price: float, target: Optional[float]) -> str:
-    return ob_core.calculate_risk_reward(zone, current_price, target)
-
-
 def get_session_info() -> tuple:
     """
     Tentukan sesi trading saat ini berdasarkan jam UTC.
