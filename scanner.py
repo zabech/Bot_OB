@@ -2,7 +2,7 @@ from trade_manager import (
     check_active_trade,
     check_open_alerts,
 )
-from signal_engine import send_signal
+from signal_engine import process_symbol
 
 async def check_symbol(app, symbol: str) -> bool:
     """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF.
