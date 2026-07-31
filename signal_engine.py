@@ -156,5 +156,5 @@ async def process_symbol(
             current_price,
             ltf_df,
             htf_candles_list,
-        ):
+    ):
     continue
