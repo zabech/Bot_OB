@@ -1,3 +1,56 @@
+def build_signal_data(
+    zone,
+    current_price,
+    htf_candles_list,
+):
+    """
+    Hitung seluruh data yang dibutuhkan untuk alert.
+    """
+
+    sl, sl_method = calculate_sl_with_atr(
+        zone,
+        current_price,
+        htf_candles_list,
+    )
+
+    risk = abs(current_price - sl)
+
+    if zone["type"] == "bullish":
+        tp = current_price + risk * RISK_REWARD_RATIO
+    else:
+        tp = current_price - risk * RISK_REWARD_RATIO
+
+    risk_pct = risk / current_price * 100
+
+    atr_val = calculate_atr(
+        htf_candles_list,
+        ATR_PERIOD,
+    )
+
+    atr_str = f"{atr_val:.4g}" if atr_val else "N/A"
+
+    ma_val = calculate_ma(
+        htf_candles_list,
+        MA_PERIOD,
+    )
+
+    trend_text = (
+        f"MA{MA_PERIOD}: {ma_val:.4g} "
+        f"({'↑ Uptrend' if current_price > ma_val else '↓ Downtrend'})"
+        if ma_val
+        else "N/A"
+    )
+
+    return {
+        "sl": sl,
+        "sl_method": sl_method,
+        "tp": tp,
+        "risk": risk,
+        "risk_pct": risk_pct,
+        "atr_str": atr_str,
+        "trend_text": trend_text,
+    }
+
 async def send_signal(
     app,
     symbol,
