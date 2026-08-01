@@ -36,18 +36,7 @@ def get_session_info() -> tuple:
 def calculate_atr(candles, period: int) -> Optional[float]:
     """Hitung ATR dari list of dict candle."""
     if hasattr(candles, 'to_dict'):
-        candles = candles.to_dict("records")
-    if len(candles) < period + 1:
-        return None
-    true_ranges = []
-    for i in range(1, len(candles)):
-        high = candles[i]["high"]
-        low = candles[i]["low"]
-        prev_close = candles[i - 1]["close"]
-        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-        true_ranges.append(tr)
-    if len(true_ranges) < period:
-        return None
+        candles = candles.to_dict("records")    
     return ob_calculate_atr(candles, period)
 
 def calculate_ma(candles, period: int) -> Optional[float]:
