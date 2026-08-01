@@ -1,33 +1,23 @@
 from dotenv import load_dotenv
 load_dotenv()
 from config import *
-import os
 import time
-import logging
-import asyncio
-import pandas as pd
 from typing import Optional
-from collections import defaultdict
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    ConversationHandler, MessageHandler, filters, ContextTypes
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
 )
 from admin import register_admin_handlers
 import db
 import ob_core
-from ob_core import calculate_atr
 from datetime import datetime, timezone
 from trading_handlers import register_trading_handlers
 from status import register_status_handlers
 from zones import zones_now
-from core_utils import (
-    get_top_volume_pairs,
-    get_active_symbols,
-    fetch_klines_df,
-    detect_order_blocks,
-    ltf_shows_reaction,
-)
+from core_utils import get_active_symbols
+
 from stats import (
     format_stats_text,
     stats_now,
@@ -39,26 +29,25 @@ from keyboards import (
     backtest_keyboard,
     pengaturan_keyboard,
 )
+
 from backtest_handlers import (
     backtest_command,
     run_backtest_async,
 )
-from scanner import (
-    check_active_trade,
-    check_symbol,
-    check_open_alerts,
-)
+
 from utils import (
     interval_to_seconds,
     candle_is_closed,
     merge_zone_state,
     format_duration,
 )
+
 from menu_handlers import (
     menu_router,
     inline_callback,
     text_input_handler,
 )
+
 from startup import on_startup
 
 from market_utils import (
