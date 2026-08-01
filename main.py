@@ -1,47 +1,24 @@
 from dotenv import load_dotenv
 load_dotenv()
 from config import *
-import time
-from typing import Optional
-from telegram import update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
+    Message_handler,
+    filters,
 )
 from admin import register_admin_handlers
 import db
 import ob_core
-from datetime import datetime, timezone
 from trading_handlers import register_trading_handlers
 from status import register_status_handlers
 from zones import zones_now
-from core_utils import get_active_symbols
 
-from stats import (
-    format_stats_text,
-    stats_now,
-)
-from keyboards import (
-    main_keyboard,
-    monitoring_keyboard,
-    analisis_keyboard,
-    backtest_keyboard,
-    pengaturan_keyboard,
-)
+from stats import stats_now
 
-from backtest_handlers import (
-    backtest_command,
-    run_backtest_async,
-)
-
-from utils import (
-    interval_to_seconds,
-    candle_is_closed,
-    merge_zone_state,
-    format_duration,
-)
-
+from backtest_handlers import backtest_command,
+    
 from menu_handlers import (
     menu_router,
     inline_callback,
@@ -49,16 +26,6 @@ from menu_handlers import (
 )
 
 from startup import on_startup
-
-from market_utils import (
-    get_session_info,
-    calculate_atr,
-    calculate_ma,
-    get_current_price,
-    trend_allows_zone,
-)
-
-from health import send_health_alert
 
 from handlers import (
     start,
