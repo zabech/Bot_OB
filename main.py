@@ -17,7 +17,7 @@ from zones import zones_now
 
 from stats import stats_now
 
-from backtest_handlers import backtest_command,
+from backtest_handlers import backtest_command
     
 from menu_handlers import (
     menu_router,
