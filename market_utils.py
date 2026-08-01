@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Optional
+import ob_core
 
 from config import *
 from ob_core import calculate_atr as ob_calculate_atr
@@ -15,7 +16,7 @@ def get_session_info() -> tuple:
     - New York (16:00-22:00 UTC)          → Aktif   ⭐⭐
     - Asia (22:00-07:00 UTC)              → Rendah  ⭐
     """
-    from datetime import datetime, timezone
+
     hour_utc = datetime.now(timezone.utc).hour
 
     in_london = SESSION_LONDON_START <= hour_utc < SESSION_LONDON_END
@@ -47,8 +48,7 @@ def calculate_atr(candles, period: int) -> Optional[float]:
         true_ranges.append(tr)
     if len(true_ranges) < period:
         return None
-    return sum(true_ranges[-period:]) / period
-
+    return ob_calculate_atr(candles, period)
 
 def calculate_ma(candles, period: int) -> Optional[float]:
     """Hitung Moving Average dari close price N candle terakhir."""
