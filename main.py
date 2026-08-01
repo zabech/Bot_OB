@@ -5,7 +5,7 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
-    Message_handler,
+    MessageHandler,
     filters,
 )
 from admin import register_admin_handlers
