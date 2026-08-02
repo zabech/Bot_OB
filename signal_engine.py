@@ -1,5 +1,5 @@
 from core_utils import detect_order_blocks
-from config import active_trades
+from config import *
 
 def build_signal_data(
     zone,
