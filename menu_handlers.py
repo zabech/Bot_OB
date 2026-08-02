@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 import db
-from config import *
+from config import active_trades
 from keyboards import (
     monitoring_keyboard,
     analisis_keyboard,
