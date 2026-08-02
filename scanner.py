@@ -6,6 +6,7 @@ from trade_manager import (
 from signal_engine import process_symbol
 from config import *
 from core_utils import get_active_symbols, fetch_klines_df
+from health import send_health_alert
 
 async def check_symbol(app, symbol: str) -> bool:
     """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF.
