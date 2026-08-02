@@ -1,5 +1,8 @@
 from core_utils import detect_order_blocks
-from utils import merge_zone_state
+from utils import (
+    merge_zone_state,
+    candle_is_closed,
+)
 from config import *
 
 def build_signal_data(
