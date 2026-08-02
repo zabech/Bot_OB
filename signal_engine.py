@@ -1,3 +1,5 @@
+from config import active_trades
+
 def build_signal_data(
     zone,
     current_price,
