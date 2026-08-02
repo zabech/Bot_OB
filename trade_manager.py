@@ -1,4 +1,5 @@
 from utils import format_duration
+from core_utils import fetch_klines_df
 from config import active_trades
 import db
 import logging
