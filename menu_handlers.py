@@ -11,7 +11,10 @@ from keyboards import (
     main_keyboard,
 )
 
-from core_utils import get_active_symbols
+from core_utils import (
+    get_active_symbols,
+    detect_order_blocks,
+)
 
 async def menu_router(update, context: ContextTypes.DEFAULT_TYPE):
     """Route pesan teks dari Reply Keyboard ke sub-menu inline."""
