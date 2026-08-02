@@ -1,4 +1,7 @@
-from core_utils import detect_order_blocks
+from core_utils import (
+    detect_order_blocks,
+    ltf_shows_reaction,
+)
 from utils import (
     merge_zone_state,
     candle_is_closed,
