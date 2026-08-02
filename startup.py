@@ -4,7 +4,15 @@ from apscheduler.triggers.cron import CronTrigger
 import db
 import ob_core
 
-from config import active_trades
+from config import (
+    active_trades,
+    CHECK_INTERVAL_MINUTES,
+    TOP_N_PAIRS,
+    HTF_LIST,
+    LTF,
+    DAILY_SUMMARY_HOUR_UTC,
+    DAILY_SUMMARY_MINUTE_UTC,
+)
 from scanner import check_and_alert
 from stats import send_daily_summary
 
