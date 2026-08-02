@@ -1,3 +1,4 @@
+from utils import format_duration
 from config import active_trades
 import db
 import logging
