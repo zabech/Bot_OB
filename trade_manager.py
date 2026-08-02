@@ -1,3 +1,9 @@
+from config import active_trades
+import db
+import logging
+
+logger = logging.getLogger(__name__)
+
 async def check_active_trade(app, symbol: str, current_price: float) -> bool:
     """
     Cek apakah trade aktif untuk pair ini sudah resolved (TP atau SL tercapai).
