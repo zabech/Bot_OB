@@ -6,7 +6,10 @@ from market_utils import get_current_price
 
 from config import *
 from keyboards import *
-from trade_manager import *
+from trade_manager import (
+    active_trades,
+    get_current_price,
+)
 from stats import *
 from core_utils import get_active_symbols
 
