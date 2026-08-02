@@ -1,3 +1,4 @@
+from core_utils import detect_order_blocks
 from config import active_trades
 
 def build_signal_data(
