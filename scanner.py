@@ -1,3 +1,4 @@
+import asyncio
 from trade_manager import (
     check_active_trade,
     check_open_alerts,
