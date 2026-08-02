@@ -8,6 +8,7 @@ from config import *
 from keyboards import *
 from trade_manager import *
 from stats import *
+from core_utils import get_active_symbols
 
 async def start(update, context: ContextTypes.DEFAULT_TYPE):
     # Reset page state
