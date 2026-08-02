@@ -1,4 +1,3 @@
-from ob_core import merge_zone_state
 from core_utils import detect_order_blocks
 from utils import merge_zone_state
 from config import *
