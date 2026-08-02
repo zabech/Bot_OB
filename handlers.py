@@ -5,6 +5,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from market_utils import get_current_price
 
 from config import active_trades
+from trade_manager import get_current_price
 from keyboards import *
 from stats import *
 from core_utils import get_active_symbols
