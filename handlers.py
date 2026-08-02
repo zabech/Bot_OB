@@ -4,12 +4,8 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 from market_utils import get_current_price
 
-from config import *
+from config import active_trades
 from keyboards import *
-from trade_manager import (
-    active_trades,
-    get_current_price,
-)
 from stats import *
 from core_utils import get_active_symbols
 
