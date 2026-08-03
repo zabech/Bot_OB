@@ -5,7 +5,9 @@ from core_utils import (
 from utils import (
     merge_zone_state,
     candle_is_closed,
+    format_duration,
 )
+
 from config import *
 
 def build_signal_data(
