@@ -1,6 +1,10 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import db
 from config import active_trades
 from keyboards import (
