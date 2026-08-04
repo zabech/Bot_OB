@@ -12,6 +12,10 @@ from config import (
     LTF,
     DAILY_SUMMARY_HOUR_UTC,
     DAILY_SUMMARY_MINUTE_UTC,
+    CHAT_ID,
+    RISK_REWARD_RATIO,
+    REQUIRE_BOS,
+    IMPULSE_MIN_PERCENT,
 )
 from scanner import check_and_alert
 from stats import send_daily_summary
