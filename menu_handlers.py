@@ -1,4 +1,8 @@
-from telegram import Update
+from telegram import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from telegram.ext import ContextTypes
 
 import logging
@@ -6,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 import db
-from config import active_trades
+from config import *
 from keyboards import (
     monitoring_keyboard,
     analisis_keyboard,
@@ -18,6 +22,8 @@ from keyboards import (
 from core_utils import (
     get_active_symbols,
     detect_order_blocks,
+    fetch_klines_df,
+    get_current_price,
 )
 
 async def menu_router(update, context: ContextTypes.DEFAULT_TYPE):
