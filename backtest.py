@@ -59,7 +59,7 @@ def fetch_candles_raw(symbol: str, interval: str, limit: int) -> list:
     return result
 
 
-def fetch_history_raw(symbol: str, interval: str, after_ts: str = None, limit: int = 300) -> list:
+def fetch_history_raw(symbol: str, interval: str, after_ts: str | None = None, limit: int = 300) -> list:
     """Ambil kline historis via /history-candles, return list of dict."""
     params = {"instId": symbol, "bar": interval, "limit": limit}
     if after_ts:
