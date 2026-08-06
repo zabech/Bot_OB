@@ -88,7 +88,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
             profit_pct_final = abs(current_price - entry) / entry * 100
             db.resolve_alert_by_symbol(symbol, "hit_target", pnl_pct=profit_pct_final)
         except Exception:
-            pass
+            logger.debug(e)
         return False
 
     if hit_sl:
