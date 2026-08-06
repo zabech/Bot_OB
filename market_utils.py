@@ -75,8 +75,8 @@ def trend_allows_zone(zone: dict, current_price: float, htf_candles) -> bool:
     if ma is None:
         return True  # tidak cukup data, jangan blokir
 
-    if zone["type"] == "bullish" and current_price > ma:
-        return True   # harga di atas MA -> uptrend -> bullish OB valid
-    if zone["type"] == "bearish" and current_price < ma:
-        return True   # harga di bawah MA -> downtrend -> bearish OB valid
-    return False
+    return (
+    (zone["type"] == "bullish" and current_price > ma)
+    or
+    (zone["type"] == "bearish" and current_price < ma)
+    )
