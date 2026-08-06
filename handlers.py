@@ -62,7 +62,7 @@ async def show_trades_page(update, context, query):
                 total_pnl += pnl
                 pnl_count += 1
         except Exception:
-            pass
+            logger.debug(e)
     
     avg_pnl = total_pnl / pnl_count if pnl_count > 0 else 0
     
@@ -98,7 +98,7 @@ async def show_trades_page(update, context, query):
                     progress = abs(price - entry) / risk
                     status = f" ({progress:.1f}R)"
         except Exception:
-            pass
+            logger.debug(e)
         
         tp_str = f"{t['tp']:.4f}" if t.get("tp") else "N/A"
         sl_str = f"{t['sl']:.4f}" if t.get("sl") else "N/A"
@@ -120,7 +120,7 @@ async def show_trades_page(update, context, query):
                 else:
                     entry_time_str = f" ({hours}h)"
             except Exception:
-                pass
+                logger.debug(e)
         
         all_trades.append({
             "num": idx,  # <-- NOMOR URUT BERDASARKAN SORTING
