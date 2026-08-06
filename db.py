@@ -138,7 +138,7 @@ def resolve_alert(alert_id: int, status: str):
         conn.close()
 
 
-def resolve_alert_by_symbol(symbol: str, status: str, pnl_pct: float = None):
+def resolve_alert_by_symbol(symbol: str, status: str, pnl_pct: float | None = None):
     """Tandai alert open terbaru untuk symbol ini sebagai selesai, simpan PnL."""
     conn = get_connection()
     try:
