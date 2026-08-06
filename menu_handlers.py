@@ -23,8 +23,9 @@ from core_utils import (
     get_active_symbols,
     detect_order_blocks,
     fetch_klines_df,
-    get_current_price,
 )
+
+from market_utils import get_current_price
 
 async def menu_router(update, context: ContextTypes.DEFAULT_TYPE):
     """Route pesan teks dari Reply Keyboard ke sub-menu inline."""
