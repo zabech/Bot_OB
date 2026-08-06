@@ -1,10 +1,8 @@
 import os
 import platform
-import time
 import shutil
-import subprocess
-import psutil
 
+import psutil
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CommandHandler,
