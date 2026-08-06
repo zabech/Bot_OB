@@ -111,8 +111,8 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
                         pnl = (entry - price) / entry * 100
                     total_pnl += pnl
                     pnl_count += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(e)
         
         avg_pnl = total_pnl / pnl_count if pnl_count > 0 else 0
         
@@ -147,8 +147,8 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
                         risk = abs(entry - t["sl"])
                         progress = abs(price - entry) / risk
                         status = f" ({progress:.1f}R)"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(e)
             
             tp_str = f"{t['tp']:.4f}" if t.get("tp") else "N/A"
             entry_str = f"{t['entry']:.4f}" if t.get("entry") else "N/A"
@@ -169,8 +169,8 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
                         entry_time_str = f" ({days}d {hours}h)"
                     else:
                         entry_time_str = f" ({hours}h)"
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(e)
             
             lines.append(
                 f"{count}. {emoji} {sym} ({t['htf']}){entry_time_str}\n"
