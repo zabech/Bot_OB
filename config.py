@@ -51,24 +51,24 @@ SESSION_NY_END = int(os.environ.get("SESSION_NY_END", "22"))
 TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", "30"))
 PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "5"))
-BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", 2))
-SYMBOL_REFRESH_HOURS = int(os.environ.get("SYMBOL_REFRESH_HOURS", 6))
-MIN_VOLUME_USD = float(os.environ.get("MIN_VOLUME_USD", 5_000_000))  # skip pair dengan volume 24h di bawah ini
+BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", "2"))
+SYMBOL_REFRESH_HOURS = int(os.environ.get("SYMBOL_REFRESH_HOURS", "6"))
+MIN_VOLUME_USD = float(os.environ.get("MIN_VOLUME_USD", "5000000"))  # skip pair dengan volume 24h di bawah ini
 
 # Kontrol jumlah alert
-ALERT_COOLDOWN_MINUTES = int(os.environ.get("ALERT_COOLDOWN_MINUTES", 60))  # jeda minimum antar alert per pair
+ALERT_COOLDOWN_MINUTES = int(os.environ.get("ALERT_COOLDOWN_MINUTES", "60"))  # jeda minimum antar alert per pair
 
 # Reliability: retry untuk request API yang gagal sementara
-API_MAX_RETRIES = int(os.environ.get("API_MAX_RETRIES", 3))
-API_RETRY_BACKOFF_SECONDS = float(os.environ.get("API_RETRY_BACKOFF_SECONDS", 2))  # dikali 2 tiap percobaan
+API_MAX_RETRIES = int(os.environ.get("API_MAX_RETRIES", "3"))
+API_RETRY_BACKOFF_SECONDS = float(os.environ.get("API_RETRY_BACKOFF_SECONDS", "2"))  # dikali 2 tiap percobaan
 
 # Reliability: notifikasi kalau banyak pair gagal dalam satu siklus (indikasi API/koneksi bermasalah)
-FAILURE_ALERT_THRESHOLD_PERCENT = float(os.environ.get("FAILURE_ALERT_THRESHOLD_PERCENT", 50))  # % pair gagal
-HEALTH_ALERT_COOLDOWN_MINUTES = int(os.environ.get("HEALTH_ALERT_COOLDOWN_MINUTES", 60))  # jeda antar health alert
+FAILURE_ALERT_THRESHOLD_PERCENT = float(os.environ.get("FAILURE_ALERT_THRESHOLD_PERCENT", "50"))  # % pair gagal
+HEALTH_ALERT_COOLDOWN_MINUTES = int(os.environ.get("HEALTH_ALERT_COOLDOWN_MINUTES", "60"))  # jeda antar health alert
 
 # Ringkasan harian: jam dalam format UTC (jam server). Default 00:00 UTC = 08:00 WITA.
-DAILY_SUMMARY_HOUR_UTC = int(os.environ.get("DAILY_SUMMARY_HOUR_UTC", 0))
-DAILY_SUMMARY_MINUTE_UTC = int(os.environ.get("DAILY_SUMMARY_MINUTE_UTC", 0))
+DAILY_SUMMARY_HOUR_UTC = int(os.environ.get("DAILY_SUMMARY_HOUR_UTC", "0"))
+DAILY_SUMMARY_MINUTE_UTC = int(os.environ.get("DAILY_SUMMARY_MINUTE_UTC", "0"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
