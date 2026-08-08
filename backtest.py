@@ -583,9 +583,10 @@ def simulate_pair(
                         "exit_ts": trade["exit_ts"],
                         "r_multiple": trade["r_multiple"],
                         "bars_held": trade["bars_held"],
-                        stats["final_signal"] += 1,
                     }
                 )
+
+                stats["final_signal"] += 1
 
                 logger.info(
                     f"[{symbol}][{htf}] DIAGNOSTIC | "
