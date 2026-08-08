@@ -346,6 +346,15 @@ def simulate_pair(
 
     results = []
 
+    stats = {
+        "zones_found": 0,
+        "price_in_zone": 0,
+        "ltf_closed": 0,
+        "ltf_reaction": 0,
+        "trend_allowed": 0,
+        "final_signal": 0,
+    }
+
     # ========================================================
     # HTF
     # ========================================================
@@ -424,6 +433,8 @@ def simulate_pair(
             if not zones:
                 continue
 
+            stats["zones_found"] += len(zones)
+
             current_candle = htf_candles[end_idx]
 
             current_htf_ts = current_candle["ts"]
@@ -466,6 +477,8 @@ def simulate_pair(
                 ):
                     continue
 
+                stats["price_in_zone"] += 1
+
                 # ------------------------------------------------
                 # Candle LTF harus close
                 # ------------------------------------------------
@@ -479,6 +492,8 @@ def simulate_pair(
                 ):
                     continue
 
+                stats["ltf_closed"] += 1
+
                 # ------------------------------------------------
                 # LTF reaction advanced — sama dengan LIVE
                 # ------------------------------------------------
@@ -488,6 +503,8 @@ def simulate_pair(
                     zone,
                 ):
                     continue
+
+                stats["ltf_reaction"] += 1
 
                 # ------------------------------------------------
                 # Trend filter — sama dengan LIVE
@@ -499,6 +516,8 @@ def simulate_pair(
                     window,
                 ):
                     continue
+
+                stats["trend_allowed"] += 1
 
                 seen_zones.add(zone_key)
 
@@ -564,7 +583,18 @@ def simulate_pair(
                         "exit_ts": trade["exit_ts"],
                         "r_multiple": trade["r_multiple"],
                         "bars_held": trade["bars_held"],
+                        stats["final_signal"] += 1,
                     }
+                )
+
+                logger.info(
+                    f"[{symbol}][{htf}] DIAGNOSTIC | "
+                    f"OB={stats['zones_found']} | "
+                    f"PriceInZone={stats['price_in_zone']} | "
+                    f"LTFClosed={stats['ltf_closed']} | "
+                    f"LTFReaction={stats['ltf_reaction']} | "
+                    f"TrendAllowed={stats['trend_allowed']} | "
+                    f"Final={stats['final_signal']}"
                 )
 
     return results
