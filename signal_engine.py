@@ -2,6 +2,9 @@ from core_utils import (
     detect_order_blocks,
     ltf_shows_reaction,
 )
+
+from market_utils import trend_allows_zone
+
 from utils import (
     merge_zone_state,
     candle_is_closed,
