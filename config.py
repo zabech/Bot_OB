@@ -22,7 +22,7 @@ LTF = os.environ.get("LTF", "1H")
 LOOKBACK_CANDLES = int(os.environ.get("LOOKBACK_CANDLES", "50"))
 IMPULSE_MIN_PERCENT = float(os.environ.get("IMPULSE_MIN_PERCENT", "3.0"))   # dinaikkan dari 1.5 ke 3.0
 MAX_ACTIVE_ZONES_PER_TF = int(os.environ.get("MAX_ACTIVE_ZONES_PER_TF", "3"))
-VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", "1.2"))
+VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", "1.1"))
 
 # Filter kualitas tambahan
 MA_PERIOD = int(os.environ.get("MA_PERIOD", "50"))               # periode MA untuk filter trend
