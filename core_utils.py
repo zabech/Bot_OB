@@ -64,7 +64,7 @@ def calculate_sl_with_atr(zone: dict, current_price: float,
 
     Return: (sl_price, sl_method) — sl_method = "ATR" atau "buffer"
     """
-    invalidation = calculate_invalidation(zone)
+    invalidation = ob_core.calculate_invalidation(zone)
     
     # ⬇️ PERBAIKAN DI SINI ⬇️
     # Pastikan menggunakan ob_core.calculate_atr
