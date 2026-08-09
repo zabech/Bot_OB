@@ -7,7 +7,7 @@ import logging
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 USE_ATR_IMPULSE = os.environ.get("USE_ATR_IMPULSE", "true").lower() == "true"
-IMPULSE_ATR_MULTIPLIER = float(os.environ.get("IMPULSE_ATR_MULTIPLIER", "1.2"))
+IMPULSE_ATR_MULTIPLIER = float(os.environ.get("IMPULSE_ATR_MULTIPLIER", "1.5"))
 USE_MEDIAN_VOLUME = os.environ.get("USE_MEDIAN_VOLUME", "true").lower() == "true"
 
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", "15"))
@@ -26,7 +26,7 @@ VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", "1.0"))
 
 # Filter kualitas tambahan
 MA_PERIOD = int(os.environ.get("MA_PERIOD", "50"))               # periode MA untuk filter trend
-USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
+USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "false").lower() == "true"
 
 # Risk management
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", "0.5"))  # buffer SL di luar invalidasi (fallback)
