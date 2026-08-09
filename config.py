@@ -26,7 +26,7 @@ VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", "1.0"))
 
 # Filter kualitas tambahan
 MA_PERIOD = int(os.environ.get("MA_PERIOD", "50"))               # periode MA untuk filter trend
-USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "false").lower() == "true"
+USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
 
 # Risk management
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", "0.5"))  # buffer SL di luar invalidasi (fallback)
@@ -36,7 +36,7 @@ ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "1.5"))          # SL = 
 
 # Konfigurasi deteksi OB tingkat lanjut
 REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
-REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "true").lower() == "true"
+REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
 SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", "10"))
 
