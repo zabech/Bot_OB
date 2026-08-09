@@ -41,6 +41,8 @@ LTF_DEFAULT = LTF
 
 MAX_LOOKFORWARD_CANDLES = 200
 
+BACKTEST_DIRECTION = "all"
+
 PAIR_QUOTE = PAIR_QUOTE
 MIN_VOLUME_USD = MIN_VOLUME_USD
 
@@ -429,6 +431,12 @@ def simulate_pair(
                 use_atr_impulse=USE_ATR_IMPULSE,
                 impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER,
             )
+
+            if BACKTEST_DIRECTION != "all":
+                zones = [
+                    z for z in zones
+                    if z["type"] == BACKTEST_DIRECTION
+                ]
 
             if not zones:
                 continue
