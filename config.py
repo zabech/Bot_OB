@@ -32,7 +32,7 @@ USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "false").lower() == "true"
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", "0.5"))  # buffer SL di luar invalidasi (fallback)
 RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", "2.0"))   # fixed R:R (default 1:2)
 ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))                     # periode ATR untuk hitung SL
-ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "1.5"))          # SL = invalidasi ± (ATR × multiplier)
+ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "1.8"))          # SL = invalidasi ± (ATR × multiplier)
 
 # Konfigurasi deteksi OB tingkat lanjut
 REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
