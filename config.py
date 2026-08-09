@@ -7,7 +7,7 @@ import logging
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 USE_ATR_IMPULSE = os.environ.get("USE_ATR_IMPULSE", "true").lower() == "true"
-IMPULSE_ATR_MULTIPLIER = float(os.environ.get("IMPULSE_ATR_MULTIPLIER", "1.7"))
+IMPULSE_ATR_MULTIPLIER = float(os.environ.get("IMPULSE_ATR_MULTIPLIER", "1.6"))
 USE_MEDIAN_VOLUME = os.environ.get("USE_MEDIAN_VOLUME", "true").lower() == "true"
 
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", "15"))
@@ -35,7 +35,7 @@ ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))                     # perio
 ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "1.5"))          # SL = invalidasi ± (ATR × multiplier)
 
 # Konfigurasi deteksi OB tingkat lanjut
-REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "false").lower() == "true"
+REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
 REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
 SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", "10"))
