@@ -568,6 +568,8 @@ def simulate_pair(
                     tp,
                 )
 
+                stats["final_signal"] += 1
+
                 results.append(
                     {
                         "symbol": symbol,
@@ -584,9 +586,7 @@ def simulate_pair(
                         "r_multiple": trade["r_multiple"],
                         "bars_held": trade["bars_held"],
                     }
-                )
-
-                stats["final_signal"] += 1
+                )               
 
                 logger.info(
                     f"[{symbol}][{htf}] DIAGNOSTIC | "
