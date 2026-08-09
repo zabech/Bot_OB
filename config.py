@@ -35,8 +35,8 @@ ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))                     # perio
 ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "1.5"))          # SL = invalidasi ± (ATR × multiplier)
 
 # Konfigurasi deteksi OB tingkat lanjut
-REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
-REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
+REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "false").lower() == "true"
+REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "true").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "false").lower() == "true"
 SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", "10"))
 
