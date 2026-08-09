@@ -7,7 +7,7 @@ import logging
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 USE_ATR_IMPULSE = os.environ.get("USE_ATR_IMPULSE", "true").lower() == "true"
-IMPULSE_ATR_MULTIPLIER = float(os.environ.get("IMPULSE_ATR_MULTIPLIER", "1.5"))
+IMPULSE_ATR_MULTIPLIER = float(os.environ.get("IMPULSE_ATR_MULTIPLIER", "1.2"))
 USE_MEDIAN_VOLUME = os.environ.get("USE_MEDIAN_VOLUME", "true").lower() == "true"
 
 CHECK_INTERVAL_MINUTES = int(os.environ.get("CHECK_INTERVAL_MINUTES", "15"))
@@ -22,11 +22,11 @@ LTF = os.environ.get("LTF", "1H")
 LOOKBACK_CANDLES = int(os.environ.get("LOOKBACK_CANDLES", "50"))
 IMPULSE_MIN_PERCENT = float(os.environ.get("IMPULSE_MIN_PERCENT", "3.0"))   # dinaikkan dari 1.5 ke 3.0
 MAX_ACTIVE_ZONES_PER_TF = int(os.environ.get("MAX_ACTIVE_ZONES_PER_TF", "3"))
-VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", "1.2"))
+VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", "1.0"))
 
 # Filter kualitas tambahan
 MA_PERIOD = int(os.environ.get("MA_PERIOD", "50"))               # periode MA untuk filter trend
-USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
+USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "false").lower() == "true"
 
 # Risk management
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", "0.5"))  # buffer SL di luar invalidasi (fallback)
@@ -35,9 +35,9 @@ ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))                     # perio
 ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "1.5"))          # SL = invalidasi ± (ATR × multiplier)
 
 # Konfigurasi deteksi OB tingkat lanjut
-REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
+REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "false").lower() == "true"
 REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
-MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
+MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "false").lower() == "true"
 SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", "10"))
 
 # Filter sesi trading (jam dalam UTC)
