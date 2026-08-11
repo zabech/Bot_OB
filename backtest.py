@@ -432,6 +432,23 @@ def simulate_pair(
                 impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER,
             )
 
+            # DIAGNOSTIC RAW OB — SEBELUM FILTER DIRECTION
+            bullish_raw = sum(
+                1 for z in zones
+                if z.get("type") == "bullish"
+            )
+
+            bearish_raw = sum(
+                1 for z in zones
+                if z.get("type") == "bearish"
+            )
+
+            logger.info(
+                f"[{symbol}][{htf}] RAW OB | "
+                f"bullish={bullish_raw} | "
+                f"bearish={bearish_raw}"
+            )
+          
             if BACKTEST_DIRECTION != "all":
                 zones = [
                     z for z in zones
