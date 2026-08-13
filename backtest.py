@@ -1067,6 +1067,13 @@ def main():
     )
 
     parser.add_argument(
+        "--symbols",
+        type=str,
+        default=None,
+        help="Daftar pair dipisah koma",
+    )
+
+    parser.add_argument(
         "--htf",
         type=str,
         default=",".join(HTF_LIST_DEFAULT),
