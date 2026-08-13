@@ -1096,13 +1096,18 @@ def main():
     ]
 
     if args.symbol:
-
         symbols = [
             args.symbol
         ]
 
+    elif args.symbols:
+        symbols = [
+            x.strip()
+            for x in args.symbols.split(",")
+            if x.strip()
+        ]
+  
     else:
-
         symbols = get_backtest_pairs(
             args.pairs
         )
