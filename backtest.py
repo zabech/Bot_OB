@@ -1097,14 +1097,14 @@ def main():
 
     if args.symbol:
         symbols = [
-            args.symbol
+            args.symbol.strip()
         ]
 
     elif args.symbols:
         symbols = [
-            x.strip()
-            for x in args.symbols.split(",")
-            if x.strip()
+            s.strip()
+            for s in args.symbols.split(",")
+            if s.strip()
         ]
   
     else:
