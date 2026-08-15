@@ -54,6 +54,7 @@ BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "5"))
 BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", "2"))
 SYMBOL_REFRESH_HOURS = int(os.environ.get("SYMBOL_REFRESH_HOURS", "6"))
 MIN_VOLUME_USD = float(os.environ.get("MIN_VOLUME_USD", "5000000"))  # skip pair dengan volume 24h di bawah ini
+MIN_PRICE_USD = float(os.environ.get("MIN_PRICE_USD", "0"))  # skip pair dengan harga di bawah ini (0 = nonaktif)
 
 # Kontrol jumlah alert
 ALERT_COOLDOWN_MINUTES = int(os.environ.get("ALERT_COOLDOWN_MINUTES", "60"))  # jeda minimum antar alert per pair
