@@ -1,9 +1,18 @@
+from datetime import datetime, timezone
+import db
+
 from core_utils import (
     detect_order_blocks,
     ltf_shows_reaction,
+    calculate_sl_with_atr,
 )
 
-from market_utils import trend_allows_zone
+from market_utils import (
+    trend_allows_zone,
+    calculate_atr,
+    calculate_ma,
+    get_session_info,
+)
 
 from utils import (
     merge_zone_state,
