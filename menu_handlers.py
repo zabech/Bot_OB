@@ -25,7 +25,10 @@ from core_utils import (
     fetch_klines_df,
 )
 
-from market_utils import get_current_price
+from market_utils import get_current_price, get_session_info
+from handlers import show_trades_page
+from stats import format_stats_text
+from backtest_handlers import run_backtest_async
 
 async def menu_router(update, context: ContextTypes.DEFAULT_TYPE):
     """Route pesan teks dari Reply Keyboard ke sub-menu inline."""
