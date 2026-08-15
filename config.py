@@ -26,7 +26,7 @@ VOLUME_MULTIPLIER = float(os.environ.get("VOLUME_MULTIPLIER", "1.2"))
 
 # Filter kualitas tambahan
 MA_PERIOD = int(os.environ.get("MA_PERIOD", "50"))               # periode MA untuk filter trend
-USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "true").lower() == "true"
+USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "false").lower() == "true"
 
 # Risk management
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", "0.5"))  # buffer SL di luar invalidasi (fallback)
