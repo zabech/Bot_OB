@@ -4,7 +4,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 from market_utils import get_current_price
 
-from config import active_trades
+from config import active_trades, HTF_LIST, LTF, CHECK_INTERVAL_MINUTES
 from market_utils import get_current_price
 from keyboards import *
 from stats import *
