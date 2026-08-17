@@ -31,7 +31,14 @@ PYTHON = sys.executable
 # "env": override environment variable (str -> str), dibaca oleh config.py
 # "args": argumen CLI persis seperti yang biasa kamu ketik ke backtest.py
 #
-# Baseline: BTC+ETH+SOL, 4H saja, 3 bulan, config default.
+# MONTHS dinaikkan ke 12 (dari 3) supaya skenario FVG/trend filter yang
+# sinyalnya jarang punya sample cukup untuk dipercaya (sebelumnya cuma
+# 3-6 sinyal di 3 bulan — terlalu kecil untuk disimpulkan apa-apa).
+# Semua skenario dites di window waktu yang SAMA (12 bulan) biar adil.
+
+MONTHS = "12"
+SYMBOLS = "BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP"
+HTF = "4H"
 
 SCENARIOS = [
     {
@@ -42,9 +49,9 @@ SCENARIOS = [
             "USE_TREND_FILTER": "false",
         },
         "args": [
-            "--months", "3",
-            "--symbols", "BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP",
-            "--htf", "4H",
+            "--months", MONTHS,
+            "--symbols", SYMBOLS,
+            "--htf", HTF,
         ],
     },
     {
@@ -55,9 +62,9 @@ SCENARIOS = [
             "USE_TREND_FILTER": "false",
         },
         "args": [
-            "--months", "3",
-            "--symbols", "BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP",
-            "--htf", "4H",
+            "--months", MONTHS,
+            "--symbols", SYMBOLS,
+            "--htf", HTF,
         ],
     },
     {
@@ -68,9 +75,9 @@ SCENARIOS = [
             "USE_TREND_FILTER": "false",
         },
         "args": [
-            "--months", "3",
-            "--symbols", "BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP",
-            "--htf", "4H",
+            "--months", MONTHS,
+            "--symbols", SYMBOLS,
+            "--htf", HTF,
         ],
     },
     {
@@ -81,9 +88,9 @@ SCENARIOS = [
             "USE_TREND_FILTER": "true",
         },
         "args": [
-            "--months", "3",
-            "--symbols", "BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP",
-            "--htf", "4H",
+            "--months", MONTHS,
+            "--symbols", SYMBOLS,
+            "--htf", HTF,
         ],
     },
     {
@@ -94,9 +101,9 @@ SCENARIOS = [
             "USE_TREND_FILTER": "true",
         },
         "args": [
-            "--months", "3",
-            "--symbols", "BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP",
-            "--htf", "4H",
+            "--months", MONTHS,
+            "--symbols", SYMBOLS,
+            "--htf", HTF,
         ],
     },
 ]
@@ -144,7 +151,7 @@ def run_scenario(scenario: dict) -> dict:
             env=env,
             capture_output=True,
             text=True,
-            timeout=1800,  # 30 menit safety timeout per skenario
+            timeout=3600,  # 60 menit safety timeout per skenario (data 12 bulan lebih berat)
         )
     except subprocess.TimeoutExpired:
         print(f"[TIMEOUT] Skenario '{scenario['name']}' melebihi 30 menit, di-skip.")
