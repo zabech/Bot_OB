@@ -41,7 +41,11 @@ LTF_DEFAULT = LTF
 
 MAX_LOOKFORWARD_CANDLES = 200
 
-BACKTEST_DIRECTION = "bearish"
+# BACKTEST_DIRECTION di-set dari CLI --direction (lihat main()), default
+# ambil dari config.py DIRECTION_FILTER (default "all"). Sebelumnya
+# hardcoded ke "bearish" — artinya SEMUA backtest sebelum fix ini cuma
+# menguji sinyal bearish, padahal bot live deteksi bullish+bearish.
+BACKTEST_DIRECTION = DIRECTION_FILTER
 
 PAIR_QUOTE = PAIR_QUOTE
 MIN_VOLUME_USD = MIN_VOLUME_USD
@@ -652,6 +656,7 @@ def print_summary(
     all_results: list,
     htf_list_used: list | None = None,
     ltf_used: str | None = None,
+    direction_used: str | None = None,
 ):
 
     if not all_results:
@@ -800,6 +805,10 @@ def print_summary(
 
     print(
         f"LTF                : {ltf_used or LTF_DEFAULT}"
+    )
+
+    print(
+        f"Direction          : {direction_used or DIRECTION_FILTER}"
     )
 
     print(
@@ -1090,7 +1099,18 @@ def main():
         help="LTF konfirmasi",
     )
 
+    parser.add_argument(
+        "--direction",
+        type=str,
+        default=DIRECTION_FILTER,
+        choices=["all", "bullish", "bearish"],
+        help="Filter arah sinyal: all/bullish/bearish (default dari config.py DIRECTION_FILTER)",
+    )
+
     args = parser.parse_args()
+
+    global BACKTEST_DIRECTION
+    BACKTEST_DIRECTION = args.direction
 
     htf_list = [
         x.strip()
@@ -1165,6 +1185,7 @@ def main():
         all_results,
         htf_list_used=htf_list,
         ltf_used=args.ltf,
+        direction_used=args.direction,
     )
 
 
