@@ -36,7 +36,7 @@ PYTHON = sys.executable
 # 3-6 sinyal di 3 bulan — terlalu kecil untuk disimpulkan apa-apa).
 # Semua skenario dites di window waktu yang SAMA (12 bulan) biar adil.
 
-MONTHS = "12"
+MONTHS = "24"
 SYMBOLS = "BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP"
 HTF = "4H"
 
