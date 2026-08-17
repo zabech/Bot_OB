@@ -277,9 +277,14 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                          mitigation_50pct: bool = True,
                          swing_lookback: int = 10,
                          use_atr_impulse: bool = True,
-                         impulse_atr_multiplier: float = 1.5) -> list:
+                         impulse_atr_multiplier: float = 1.5,
+                         direction_filter: str = "all") -> list:
     """
     Deteksi order block dengan filter kualitas lengkap.
+
+    direction_filter: "all" (default), "bullish", atau "bearish".
+    Kalau bukan "all", zona dengan arah yang tidak sesuai akan di-skip
+    lebih awal (sebelum filter BOS/FVG/mitigasi yang lebih berat).
     """
     # Normalisasi ke list of dict
     if HAS_PANDAS and hasattr(data, 'iterrows'):
@@ -340,6 +345,10 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
             ob_type = "bullish"
             impulse_end = i + 3
 
+            # ── Filter arah (opsional) ──
+            if direction_filter != "all" and direction_filter != ob_type:
+                continue
+
             # ── Filter 3: Break of Structure ──
             if require_bos and not _has_break_of_structure(candles, i, ob_type, impulse_end, swing_lookback):
                 continue
@@ -380,6 +389,10 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
 
             ob_type = "bearish"
             impulse_end = i + 3
+
+            # ── Filter arah (opsional) ──
+            if direction_filter != "all" and direction_filter != ob_type:
+                continue
 
             # ── Filter 3: Break of Structure ──
             if require_bos and not _has_break_of_structure(candles, i, ob_type, impulse_end, swing_lookback):
