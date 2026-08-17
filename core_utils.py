@@ -46,7 +46,8 @@ def detect_order_blocks(candles, max_zones: int) -> list:
         mitigation_50pct=MITIGATION_50PCT,
         swing_lookback=SWING_LOOKBACK,
         use_atr_impulse=USE_ATR_IMPULSE,
-        impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER
+        impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER,
+        direction_filter=DIRECTION_FILTER
     )
 
 def ltf_shows_reaction(ltf_data, zone: dict) -> bool:
