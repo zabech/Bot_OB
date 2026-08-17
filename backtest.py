@@ -41,7 +41,7 @@ LTF_DEFAULT = LTF
 
 MAX_LOOKFORWARD_CANDLES = 200
 
-BACKTEST_DIRECTION = "all"
+BACKTEST_DIRECTION = "bearish"
 
 PAIR_QUOTE = PAIR_QUOTE
 MIN_VOLUME_USD = MIN_VOLUME_USD
@@ -650,6 +650,8 @@ def candle_is_closed_backtest(
 
 def print_summary(
     all_results: list,
+    htf_list_used: list | None = None,
+    ltf_used: str | None = None,
 ):
 
     if not all_results:
@@ -792,11 +794,12 @@ def print_summary(
     print("\n--- CONFIG ---")
 
     print(
-        f"HTF                : {','.join(HTF_LIST_DEFAULT)}"
+        f"HTF                : "
+        f"{','.join(htf_list_used or HTF_LIST_DEFAULT)}"
     )
 
     print(
-        f"LTF                : {LTF_DEFAULT}"
+        f"LTF                : {ltf_used or LTF_DEFAULT}"
     )
 
     print(
@@ -1159,7 +1162,9 @@ def main():
         time.sleep(0.5)
 
     print_summary(
-        all_results
+        all_results,
+        htf_list_used=htf_list,
+        ltf_used=args.ltf,
     )
 
 
