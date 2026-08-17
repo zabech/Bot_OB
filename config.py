@@ -30,7 +30,7 @@ USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "false").lower() == "true"
 
 # Risk management
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", "0.5"))  # buffer SL di luar invalidasi (fallback)
-RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", "2.5"))   # fixed R:R (default 1:2)
+RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", "2.0"))   # fixed R:R (default 1:2)
 ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))                     # periode ATR untuk hitung SL
 ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "2.0"))          # SL = invalidasi ± (ATR × multiplier)
 
