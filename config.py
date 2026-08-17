@@ -36,7 +36,7 @@ ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "2.0"))          # SL = 
 
 # Konfigurasi deteksi OB tingkat lanjut
 REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
-REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "true").lower() == "true"
+REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
 DIRECTION_FILTER = os.environ.get("DIRECTION_FILTER", "bearish").lower()  # "all" / "bullish" / "bearish"
 SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", "10"))
