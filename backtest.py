@@ -205,6 +205,8 @@ def resolve_trade(
     zone_type: str,
     sl: float,
     tp: float,
+    entry_price: float,
+    risk: float,
 ) -> dict:
     """
     Menentukan hasil trade setelah entry.
@@ -212,6 +214,10 @@ def resolve_trade(
     Jika TP dan SL tersentuh dalam candle yang sama,
     kita anggap LOSS secara konservatif karena urutan intrabar
     tidak diketahui.
+
+    r_multiple_gross = hasil murni sebelum fee/slippage (yang selama ini
+    dipakai). r_multiple = hasil NET setelah fee (entry+exit, taker) dan
+    slippage — ini yang lebih realistis dipakai untuk Total R/PF laporan.
     """
 
     future = [
@@ -222,22 +228,25 @@ def resolve_trade(
 
     future = future[:MAX_LOOKFORWARD_CANDLES]
 
+    def _apply_costs(gross_r: float, exit_price: float) -> float:
+        """Kurangi gross_r dengan biaya fee (2x, entry+exit) dan slippage (2x)."""
+        if risk <= 0:
+            return gross_r
+        fee_cost = (entry_price + exit_price) * (TAKER_FEE_PERCENT / 100)
+        slippage_cost = (entry_price + exit_price) * (SLIPPAGE_PERCENT / 100)
+        cost_in_r = (fee_cost + slippage_cost) / risk
+        return gross_r - cost_in_r
+
     if not future:
         return {
             "outcome": "unresolved",
             "exit_price": None,
             "exit_ts": None,
             "r_multiple": 0.0,
+            "r_multiple_gross": 0.0,
             "bars_held": 0,
         }
 
-    risk = abs(
-        future[0]["open"] - sl
-    )
-
-    # Risk sebenarnya seharusnya berdasarkan entry.
-    # Nilai entry diberikan oleh caller melalui SL/TP relationship.
-    # Caller akan menghitung R berdasarkan entry.
     for i, candle in enumerate(future, 1):
 
         if zone_type == "bullish":
@@ -261,7 +270,8 @@ def resolve_trade(
                 "outcome": "loss",
                 "exit_price": sl,
                 "exit_ts": candle["ts"],
-                "r_multiple": -1.0,
+                "r_multiple": _apply_costs(-1.0, sl),
+                "r_multiple_gross": -1.0,
                 "bars_held": i,
             }
 
@@ -271,7 +281,8 @@ def resolve_trade(
                 "outcome": "win",
                 "exit_price": tp,
                 "exit_ts": candle["ts"],
-                "r_multiple": RISK_REWARD_RATIO,
+                "r_multiple": _apply_costs(RISK_REWARD_RATIO, tp),
+                "r_multiple_gross": RISK_REWARD_RATIO,
                 "bars_held": i,
             }
 
@@ -281,7 +292,8 @@ def resolve_trade(
                 "outcome": "loss",
                 "exit_price": sl,
                 "exit_ts": candle["ts"],
-                "r_multiple": -1.0,
+                "r_multiple": _apply_costs(-1.0, sl),
+                "r_multiple_gross": -1.0,
                 "bars_held": i,
             }
 
@@ -290,6 +302,7 @@ def resolve_trade(
         "exit_price": None,
         "exit_ts": None,
         "r_multiple": 0.0,
+        "r_multiple_gross": 0.0,
         "bars_held": len(future),
     }
 
@@ -681,6 +694,8 @@ def simulate_pair(
                     zone["type"],
                     sl,
                     tp,
+                    current_price,
+                    risk,
                 )
 
                 stats["final_signal"] += 1
@@ -699,6 +714,7 @@ def simulate_pair(
                         "exit_price": trade["exit_price"],
                         "exit_ts": trade["exit_ts"],
                         "r_multiple": trade["r_multiple"],
+                        "r_multiple_gross": trade["r_multiple_gross"],
                         "bars_held": trade["bars_held"],
                     }
                 )               
@@ -786,6 +802,11 @@ def print_summary(
         for r in all_results
     )
 
+    total_r_gross = sum(
+        r.get("r_multiple_gross", r["r_multiple"])
+        for r in all_results
+    )
+
     gross_profit = sum(
         max(r["r_multiple"], 0)
         for r in all_results
@@ -801,6 +822,23 @@ def print_summary(
     profit_factor = (
         gross_profit / gross_loss
         if gross_loss
+        else float("inf")
+    )
+
+    # PF gross (tanpa fee/slippage) untuk perbandingan
+    gp_gross = sum(
+        max(r.get("r_multiple_gross", r["r_multiple"]), 0)
+        for r in all_results
+    )
+    gl_gross = abs(
+        sum(
+            min(r.get("r_multiple_gross", r["r_multiple"]), 0)
+            for r in all_results
+        )
+    )
+    profit_factor_gross = (
+        gp_gross / gl_gross
+        if gl_gross
         else float("inf")
     )
 
@@ -863,6 +901,7 @@ def print_summary(
 
     print(
         f"Total R            : {total_r:.2f}R"
+        f"   (gross sebelum fee: {total_r_gross:.2f}R)"
     )
 
     print(
@@ -870,6 +909,19 @@ def print_summary(
         f"{profit_factor:.2f}"
         if profit_factor != float("inf")
         else "Profit Factor      : INF"
+    )
+
+    print(
+        f"  (gross sebelum fee: "
+        f"{profit_factor_gross:.2f}"
+        f")"
+        if profit_factor_gross != float("inf")
+        else "  (gross sebelum fee: INF)"
+    )
+
+    print(
+        f"Biaya per trade    : fee {TAKER_FEE_PERCENT}% + "
+        f"slippage {SLIPPAGE_PERCENT}% (per sisi, entry & exit)"
     )
 
     print(
