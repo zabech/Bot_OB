@@ -48,6 +48,29 @@ def calculate_ma(candles, period: int) -> Optional[float]:
     closes = [c["close"] if isinstance(c, dict) else float(c["close"]) for c in candles[-period:]]
     return sum(closes) / len(closes)
 
+def get_macro_regime(candles, ma_period: int) -> Optional[str]:
+    """
+    Tentukan regime market makro dari 1 series candle (biasanya BTC 1D).
+
+    "bearish"  → close terakhir di bawah MA(ma_period) — market downtrend
+    "bullish"  → close terakhir di atas MA(ma_period) — market uptrend
+    None       → data candle belum cukup untuk hitung MA
+
+    Fungsi ini murni (tidak fetch apapun) supaya bisa dipakai untuk:
+    - live (dikasih candle terbaru, lihat core_utils.get_current_macro_regime)
+    - backtest (dikasih candle historis SAMPAI titik waktu tertentu saja,
+      supaya tidak lookahead — lihat backtest.py build_macro_regime_lookup)
+    """
+    if hasattr(candles, 'to_dict'):
+        candles = candles.to_dict("records")
+    if len(candles) < ma_period:
+        return None
+    ma = calculate_ma(candles, ma_period)
+    if ma is None:
+        return None
+    last_close = candles[-1]["close"] if isinstance(candles[-1], dict) else float(candles[-1]["close"])
+    return "bullish" if last_close > ma else "bearish"
+
 def get_current_price(symbol: str) -> Optional[float]:
     """Ambil harga terakhir pair dari endpoint ticker OKX."""
     try:
