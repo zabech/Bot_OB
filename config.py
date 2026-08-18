@@ -30,7 +30,7 @@ USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "false").lower() == "true"
 
 # Risk management
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", "0.5"))  # buffer SL di luar invalidasi (fallback)
-RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", "2.5"))   # fixed R:R (default 1:2)
+RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", "2.0"))   # fixed R:R (default 1:2)
 ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))                     # periode ATR untuk hitung SL
 ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "2.0"))          # SL = invalidasi ± (ATR × multiplier)
 
@@ -38,7 +38,7 @@ ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "2.0"))          # SL = 
 REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
 REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
-DIRECTION_FILTER = os.environ.get("DIRECTION_FILTER", "bearish").lower()  # "all" / "bullish" / "bearish"
+DIRECTION_FILTER = os.environ.get("DIRECTION_FILTER", "all").lower()  # "all" / "bullish" / "bearish"
 
 # ── Macro Market Filter ──
 # Gerbang tambahan di atas DIRECTION_FILTER: sinyal cuma lolos kalau
@@ -48,6 +48,12 @@ MACRO_SYMBOL = os.environ.get("MACRO_SYMBOL", "BTC-USDT-SWAP")
 MACRO_TIMEFRAME = os.environ.get("MACRO_TIMEFRAME", "1D")
 MACRO_MA_PERIOD = int(os.environ.get("MACRO_MA_PERIOD", "200"))
 MACRO_REFRESH_MINUTES = int(os.environ.get("MACRO_REFRESH_MINUTES", "60"))
+
+# ── Biaya Trading (dipakai backtest.py untuk hitung R net) ──
+# OKX taker fee futures default ~0.05% per sisi (entry & exit masing-masing).
+# Slippage adalah estimasi kasar selisih harga fill vs harga sinyal.
+TAKER_FEE_PERCENT = float(os.environ.get("TAKER_FEE_PERCENT", "0.05"))
+SLIPPAGE_PERCENT = float(os.environ.get("SLIPPAGE_PERCENT", "0.02"))
 SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", "10"))
 
 # Filter sesi trading (jam dalam UTC)
