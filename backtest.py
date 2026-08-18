@@ -14,6 +14,7 @@ Fitur:
 """
 
 import argparse
+import bisect
 import logging
 import time
 from collections import defaultdict
@@ -25,7 +26,7 @@ from core_utils import (
     calculate_sl_with_atr,
     ltf_shows_reaction,
 )
-from market_utils import trend_allows_zone
+from market_utils import trend_allows_zone, get_macro_regime
 
 
 logging.basicConfig(
@@ -297,6 +298,76 @@ def resolve_trade(
 # SIMULATE ONE PAIR
 # ============================================================
 
+def build_macro_regime_lookup(months: int) -> tuple:
+    """
+    Bangun lookup regime market makro (BTC vs MA jangka panjang) sepanjang
+    periode backtest, TANPA lookahead — tiap titik cuma pakai candle
+    SAMPAI titik itu untuk hitung MA, persis seperti live.
+
+    Return: (list_ts, list_regime) — dua list sejajar terurut menaik
+    berdasarkan ts, siap dipakai bisect di regime_at(). Kosong kalau
+    USE_MACRO_FILTER mati atau fetch gagal.
+    """
+    if not USE_MACRO_FILTER:
+        return [], []
+
+    end_ts_ms = int(time.time() * 1000)
+    # Buffer ekstra di depan supaya MA_PERIOD candle pertama backtest
+    # tetap punya cukup histori untuk dihitung (bukan cuma "None" terus).
+    buffer_days = MACRO_MA_PERIOD * 2
+    start_ts_ms = int(
+        (
+            datetime.now(timezone.utc)
+            - timedelta(days=months * 30 + buffer_days)
+        ).timestamp() * 1000
+    )
+
+    try:
+        macro_candles = fetch_full_history_raw(
+            MACRO_SYMBOL, MACRO_TIMEFRAME, start_ts_ms, end_ts_ms
+        )
+    except Exception as e:
+        logger.error(f"[MACRO] Gagal ambil histori {MACRO_SYMBOL}: {e}")
+        return [], []
+
+    if len(macro_candles) < MACRO_MA_PERIOD:
+        logger.warning(
+            f"[MACRO] Data {MACRO_SYMBOL} {MACRO_TIMEFRAME} tidak cukup "
+            f"untuk MA{MACRO_MA_PERIOD} ({len(macro_candles)} candle)."
+        )
+        return [], []
+
+    lookup_ts = []
+    lookup_regime = []
+    for i in range(MACRO_MA_PERIOD, len(macro_candles) + 1):
+        # Slice [:i] → cuma candle sampai titik ini, tidak ada lookahead
+        regime = get_macro_regime(macro_candles[:i], MACRO_MA_PERIOD)
+        if regime is not None:
+            lookup_ts.append(macro_candles[i - 1]["ts"])
+            lookup_regime.append(regime)
+
+    logger.info(
+        f"[MACRO] Lookup regime dibangun: {len(lookup_ts)} titik "
+        f"({MACRO_SYMBOL} {MACRO_TIMEFRAME} MA{MACRO_MA_PERIOD})"
+    )
+    return lookup_ts, lookup_regime
+
+
+def regime_at(lookup_ts: list, lookup_regime: list, ts) -> str | None:
+    """
+    Cari regime yang berlaku pada waktu `ts`, pakai titik lookup terakhir
+    yang timestamp-nya <= ts (candle daily terakhir yang SUDAH close
+    sebelum/sama dengan waktu sinyal — tidak ada lookahead).
+    lookup_ts harus sudah terurut menaik.
+    """
+    if not lookup_ts:
+        return None
+    idx = bisect.bisect_right(lookup_ts, int(ts)) - 1
+    if idx < 0:
+        return None
+    return lookup_regime[idx]
+
+
 def simulate_pair(
     symbol: str,
     htf_list: list,
@@ -360,6 +431,13 @@ def simulate_pair(
         "trend_allowed": 0,
         "final_signal": 0,
     }
+
+    # --------------------------------------------------------
+    # Macro regime lookup (dibangun sekali per pair, dipakai di
+    # semua HTF — regime-nya sama karena sumbernya BTC, bukan
+    # bergantung pair yang sedang disimulasikan)
+    # --------------------------------------------------------
+    macro_lookup_ts, macro_lookup_regime = build_macro_regime_lookup(months)
 
     # ========================================================
     # HTF
@@ -467,6 +545,14 @@ def simulate_pair(
             current_candle = htf_candles[end_idx]
 
             current_htf_ts = current_candle["ts"]
+
+            if USE_MACRO_FILTER and macro_lookup_ts:
+                regime = regime_at(macro_lookup_ts, macro_lookup_regime, current_htf_ts)
+                if regime is not None:
+                    zones = [z for z in zones if z["type"] == regime]
+
+            if not zones:
+                continue
 
             current_price = current_candle["close"]
 
@@ -809,6 +895,14 @@ def print_summary(
 
     print(
         f"Direction          : {direction_used or DIRECTION_FILTER}"
+    )
+
+    macro_status = (
+        f"ON ({MACRO_SYMBOL} {MACRO_TIMEFRAME} MA{MACRO_MA_PERIOD})"
+        if USE_MACRO_FILTER else "OFF"
+    )
+    print(
+        f"Macro filter       : {macro_status}"
     )
 
     print(
