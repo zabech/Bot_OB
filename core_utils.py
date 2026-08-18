@@ -3,10 +3,17 @@ import logging
 import ob_core
 from config import *
 
+from market_utils import get_macro_regime
+
 logger = logging.getLogger(__name__)
 
 top_pairs_cache = {
     "symbols": [],
+    "last_refresh": 0,
+}
+
+macro_regime_cache = {
+    "regime": None,
     "last_refresh": 0,
 }
 
@@ -25,6 +32,34 @@ def get_active_symbols() -> list:
         except Exception as e:
             logger.error(f"Gagal refresh daftar pair: {e}")
     return top_pairs_cache["symbols"]
+
+def get_current_macro_regime() -> str | None:
+    """
+    Ambil regime market makro saat ini (cached, refresh tiap MACRO_REFRESH_MINUTES).
+    Return "bullish" / "bearish" / None (kalau USE_MACRO_FILTER mati atau data kurang).
+    """
+    if not USE_MACRO_FILTER:
+        return None
+
+    now = time.time()
+    if macro_regime_cache["regime"] is not None and \
+       (now - macro_regime_cache["last_refresh"]) < MACRO_REFRESH_MINUTES * 60:
+        return macro_regime_cache["regime"]
+
+    try:
+        # Ambil cukup candle untuk MA_PERIOD + buffer
+        candles = fetch_klines_df(MACRO_SYMBOL, MACRO_TIMEFRAME, MACRO_MA_PERIOD + 10)
+        regime = get_macro_regime(candles, MACRO_MA_PERIOD)
+        if regime is not None:
+            macro_regime_cache["regime"] = regime
+            macro_regime_cache["last_refresh"] = now
+            logger.info(f"[MACRO] Regime market ({MACRO_SYMBOL} {MACRO_TIMEFRAME} MA{MACRO_MA_PERIOD}): {regime}")
+        else:
+            logger.warning("[MACRO] Data candle kurang untuk hitung regime, filter dilewati sementara")
+        return regime
+    except Exception as e:
+        logger.error(f"[MACRO] Gagal ambil regime market: {e}")
+        return macro_regime_cache["regime"]  # fallback ke cache lama kalau ada
 
 def fetch_klines_df(symbol: str, interval: str, limit: int):
     """Fetch klines dan return sebagai list of dict (bukan DataFrame) untuk konsistensi."""
