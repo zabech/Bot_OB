@@ -30,7 +30,7 @@ USE_TREND_FILTER = os.environ.get("USE_TREND_FILTER", "false").lower() == "true"
 
 # Risk management
 SL_BUFFER_PERCENT = float(os.environ.get("SL_BUFFER_PERCENT", "0.5"))  # buffer SL di luar invalidasi (fallback)
-RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", "2.0"))   # fixed R:R (default 1:2)
+RISK_REWARD_RATIO = float(os.environ.get("RISK_REWARD_RATIO", "2.5"))   # fixed R:R (default 1:2)
 ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))                     # periode ATR untuk hitung SL
 ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "2.0"))          # SL = invalidasi ± (ATR × multiplier)
 
@@ -38,7 +38,7 @@ ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "2.0"))          # SL = 
 REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
 REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
-DIRECTION_FILTER = os.environ.get("DIRECTION_FILTER", "all").lower()  # "all" / "bullish" / "bearish"
+DIRECTION_FILTER = os.environ.get("DIRECTION_FILTER", "bearish").lower()  # "all" / "bullish" / "bearish"
 
 # ── Macro Market Filter ──
 # Gerbang tambahan di atas DIRECTION_FILTER: sinyal cuma lolos kalau
