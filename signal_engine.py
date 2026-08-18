@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
+
 import db
 
 from core_utils import (
     detect_order_blocks,
     ltf_shows_reaction,
     calculate_sl_with_atr,
+    get_current_macro_regime,
 )
 
 from market_utils import (
@@ -219,6 +221,15 @@ async def validate_zone(
         logger.info(f"[{symbol}] BLOCKED — zona berlawanan dengan trend.")
         zone["mitigated"] = True
         return False
+
+    if USE_MACRO_FILTER:
+        regime = get_current_macro_regime()
+        if regime is not None and zone["type"] != regime:
+            logger.info(
+                f"[{symbol}] BLOCKED — zona {zone['type']} tidak cocok "
+                f"dengan regime market makro saat ini ({regime})."
+            )
+            return False
 
     return True
 
