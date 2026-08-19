@@ -1253,6 +1253,13 @@ def main():
         help="Filter arah sinyal: all/bullish/bearish (default dari config.py DIRECTION_FILTER)",
     )
 
+    parser.add_argument(
+        "--export-csv",
+        type=str,
+        default=None,
+        help="Path CSV untuk export detail tiap sinyal (untuk analisis lanjutan, mis. bootstrap_test.py)",
+    )
+
     args = parser.parse_args()
 
     global BACKTEST_DIRECTION
@@ -1333,6 +1340,23 @@ def main():
         ltf_used=args.ltf,
         direction_used=args.direction,
     )
+
+    if args.export_csv:
+        import csv
+
+        fieldnames = [
+            "symbol", "htf", "zone_type", "entry_price", "sl", "tp",
+            "risk", "sl_method", "outcome", "exit_price", "exit_ts",
+            "r_multiple", "r_multiple_gross", "bars_held",
+        ]
+
+        with open(args.export_csv, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            for r in all_results:
+                writer.writerow(r)
+
+        print(f"\nDetail sinyal diexport ke: {args.export_csv}")
 
 
 if __name__ == "__main__":
