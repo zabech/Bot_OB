@@ -1,6 +1,8 @@
 from dotenv import load_dotenv
 load_dotenv()
 from config import *
+import logging
+import traceback
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -37,6 +39,43 @@ from handlers import (
 WAITING_SYMBOL_ZONES = 1
 WAITING_SYMBOL_BACKTEST = 2
 WAITING_MONTHS_BACKTEST = 3
+
+async def global_error_handler(update, context):
+    """
+    Tangkap SEMUA exception yang tidak tertangani di handler manapun.
+
+    Tanpa ini, kalau ada bug di suatu handler (mis. show_trades_page),
+    Telegram-nya cuma "diam" — user tidak lihat error apapun, cuma
+    server yang log-nya kelihatan (kalau sempat dicek manual). Ini
+    kirim notifikasi singkat ke user + log lengkap ke server supaya
+    gampang di-debug.
+    """
+    error = context.error
+
+    # "Message is not modified" — muncul kalau user tekan Refresh
+    # padahal isi pesan belum berubah sama sekali. Bukan bug beneran,
+    # aman diabaikan (jangan kirim notif error ke user untuk ini).
+    if "Message is not modified" in str(error):
+        logger.debug(f"Ignored harmless error: {error}")
+        return
+
+    logger.error(
+        f"Unhandled exception: {error}\n"
+        f"{''.join(traceback.format_exception(type(error), error, error.__traceback__))}"
+    )
+
+    try:
+        if update and hasattr(update, "effective_chat") and update.effective_chat:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=(
+                    "⚠️ Terjadi error saat memproses permintaan ini.\n"
+                    "Coba lagi, atau cek log bot kalau berulang."
+                ),
+            )
+    except Exception as notify_err:
+        logger.error(f"Gagal kirim notifikasi error ke user: {notify_err}")
+
     
 def main():
     if not BOT_TOKEN or not CHAT_ID:
@@ -78,6 +117,10 @@ def main():
         menu_router
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_input_handler))
+
+    # Global error handler — WAJIB ada, tanpa ini exception di handler
+    # manapun bikin bot "diam" tanpa feedback apapun ke user.
+    app.add_error_handler(global_error_handler)
 
     logger.info("Bot mulai polling...")
     app.run_polling()
