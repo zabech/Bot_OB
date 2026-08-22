@@ -12,6 +12,7 @@ from core_utils import (
     fetch_klines_df,
     detect_order_blocks,
 )
+from utils import drop_unclosed_last_candle
 
 async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
@@ -27,6 +28,7 @@ async def zones_now(update, context: ContextTypes.DEFAULT_TYPE):
         lines = [f"Harga {symbol} sekarang: {current_price}\n"]
         for htf in HTF_LIST:
             htf_df = fetch_klines_df(symbol, htf, LOOKBACK_CANDLES)
+            htf_df = drop_unclosed_last_candle(htf_df)
             zones = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
 
             lines.append(f"\n📊 Timeframe {htf}:")
