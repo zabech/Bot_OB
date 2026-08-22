@@ -20,6 +20,7 @@ from utils import (
     merge_zone_state,
     candle_is_closed,
     format_duration,
+    drop_unclosed_last_candle,
 )
 
 from config import *
@@ -170,8 +171,18 @@ def prepare_zones(
     Return list zona aktif.
     """
 
+    # PENTING: OKX selalu menaruh candle HTF yang sedang berjalan
+    # (belum close) sebagai elemen TERAKHIR. Kalau candle itu ikut
+    # dipakai untuk deteksi order block, hasilnya bisa membentuk OB
+    # "hantu" yang cuma valid selama candle itu belum selesai —
+    # begitu candle-nya close beneran, bentuknya sering berubah dan
+    # OB itu tidak akan pernah muncul lagi di data historis/backtest.
+    # Buang 1 candle terakhir supaya deteksi cuma pakai candle yang
+    # sudah pasti final, sama seperti yang dipakai backtest.py.
+    htf_df_closed = drop_unclosed_last_candle(htf_df)
+
     detected = detect_order_blocks(
-        htf_df,
+        htf_df_closed,
         MAX_ACTIVE_ZONES_PER_TF,
     )
 
