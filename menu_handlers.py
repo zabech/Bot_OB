@@ -163,7 +163,11 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
             if t.get("entry_time"):
                 try:
                     from datetime import datetime, timezone
-                    entry_time = datetime.fromisoformat(t["entry_time"])
+                    raw_entry_time = t["entry_time"]
+                    if isinstance(raw_entry_time, datetime):
+                        entry_time = raw_entry_time
+                    else:
+                        entry_time = datetime.fromisoformat(raw_entry_time)
                     if entry_time.tzinfo is None:
                         entry_time = entry_time.replace(tzinfo=timezone.utc)
                     duration = datetime.now(timezone.utc) - entry_time
