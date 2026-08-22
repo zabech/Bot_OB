@@ -61,13 +61,21 @@ def candle_is_closed(candles, interval: str) -> bool:
 def merge_zone_state(old_zones: list, new_zones: list) -> list:
     return ob_core.merge_zone_state(old_zones, new_zones)
 
-def format_duration(entry_time_str: str) -> str:
-    """Hitung durasi dari entry_time sampai sekarang dan format menjadi string."""
+def format_duration(entry_time_str) -> str:
+    """Hitung durasi dari entry_time sampai sekarang dan format menjadi string.
+
+    Terima str (isoformat) ATAU objek datetime langsung — beberapa sumber
+    data (mis. kolom TIMESTAMP dari PostgreSQL) mengembalikan datetime,
+    bukan string.
+    """
     try:
         from datetime import datetime, timezone
-        
-        # Parse entry_time
-        entry_time = datetime.fromisoformat(entry_time_str)
+
+        # Parse entry_time — robust terhadap str maupun datetime langsung
+        if isinstance(entry_time_str, datetime):
+            entry_time = entry_time_str
+        else:
+            entry_time = datetime.fromisoformat(entry_time_str)
         now = datetime.now(timezone.utc)
         
         # Jika entry_time naive (tanpa timezone), asumsikan UTC
