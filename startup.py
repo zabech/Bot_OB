@@ -1,5 +1,6 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime
 
 import db
 import ob_core
@@ -53,7 +54,17 @@ async def on_startup(app):
                 entry = float(alert["entry_price"])
                 sl = float(alert["invalidation"])
                 zone_type = alert["zone_type"]
-                entry_time=alert.get("entry_time")
+                entry_time = alert.get("entry_time")
+                # Kolom DB bertipe TIMESTAMP → psycopg2 mengembalikan objek
+                # datetime, BUKAN string. Sementara trade yang terbentuk
+                # langsung di sesi live (signal_engine.py) menyimpan
+                # entry_time sebagai string (.isoformat()). Normalisasi di
+                # sini supaya tipe-nya SELALU string, konsisten di semua
+                # tempat — kalau tidak, sorted()/datetime.fromisoformat()
+                # di handlers.py & menu_handlers.py bisa error karena
+                # membandingkan/parsing dua tipe berbeda.
+                if isinstance(entry_time, datetime):
+                    entry_time = entry_time.isoformat()
 
                 breakeven_triggered = False
 
