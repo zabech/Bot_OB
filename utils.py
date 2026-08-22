@@ -14,6 +14,27 @@ def interval_to_seconds(interval: str) -> int:
     }
     return mapping.get(interval, 3600)
 
+def drop_unclosed_last_candle(candles):
+    """
+    Buang candle TERAKHIR dari hasil fetch_klines_df/fetch_klines_history_df.
+
+    OKX selalu menaruh candle yang sedang berjalan (belum close) sebagai
+    elemen paling akhir di response endpoint /market/candles. Kalau candle
+    itu ikut dipakai untuk deteksi order block, hasilnya bisa membentuk
+    OB "hantu" yang cuma valid selama candle-nya belum selesai — begitu
+    close beneran, bentuknya sering berubah dan OB itu tidak akan pernah
+    kelihatan lagi di data historis/backtest.
+
+    Pakai fungsi ini SEBELUM data candle HTF/LTF dipakai untuk deteksi
+    pola (detect_order_blocks, dsb), supaya konsisten dengan backtest.py
+    yang selalu bekerja di atas candle yang sudah pasti final.
+    """
+    if candles is None:
+        return candles
+    if hasattr(candles, 'iloc'):
+        return candles.iloc[:-1] if len(candles) > 1 else candles
+    return candles[:-1] if len(candles) > 1 else candles
+
 def candle_is_closed(candles, interval: str) -> bool:
     """
     Cek apakah candle LTF TERAKHIR (paling baru di array) sudah close.
