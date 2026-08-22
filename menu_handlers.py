@@ -29,6 +29,7 @@ from market_utils import get_current_price, get_session_info
 from handlers import show_trades_page
 from stats import format_stats_text
 from backtest_handlers import run_backtest_async
+from utils import drop_unclosed_last_candle
 
 async def menu_router(update, context: ContextTypes.DEFAULT_TYPE):
     """Route pesan teks dari Reply Keyboard ke sub-menu inline."""
@@ -332,6 +333,7 @@ async def text_input_handler(update, context: ContextTypes.DEFAULT_TYPE):
             lines = [f"Harga {text} sekarang: {current_price}\n"]
             for htf in HTF_LIST:
                 htf_df = fetch_klines_df(text, htf, LOOKBACK_CANDLES)
+                htf_df = drop_unclosed_last_candle(htf_df)
                 zones = detect_order_blocks(htf_df, MAX_ACTIVE_ZONES_PER_TF)
                 lines.append(f"\n📊 Timeframe {htf}:")
                 if not zones:
