@@ -1,11 +1,11 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import datetime, timezone
 
 from market_utils import get_current_price
 
 from config import active_trades, HTF_LIST, LTF, CHECK_INTERVAL_MINUTES
-from market_utils import get_current_price
 from keyboards import *
 from stats import *
 from core_utils import get_active_symbols
@@ -71,9 +71,17 @@ async def show_trades_page(update, context, query):
     
     # Sortir berdasarkan entry_time (terbaru di atas)
     # Jika tidak ada entry_time, sortir berdasarkan symbol
+    # (robust terhadap entry_time berupa str ATAU datetime — normalisasi
+    # ke string dulu supaya sorted() tidak error banding tipe berbeda)
+    def _sort_key(item):
+        entry_time = item[1].get("entry_time")
+        if isinstance(entry_time, datetime):
+            return entry_time.isoformat()
+        return entry_time or item[0]
+
     sorted_trades = sorted(
         active_trades.items(),
-        key=lambda x: x[1].get("entry_time", x[0]),
+        key=_sort_key,
         reverse=True
     )
     
@@ -107,8 +115,11 @@ async def show_trades_page(update, context, query):
         entry_time_str = ""
         if t.get("entry_time"):
             try:
-                from datetime import datetime, timezone
-                entry_time = datetime.fromisoformat(t["entry_time"])
+                raw_entry_time = t["entry_time"]
+                if isinstance(raw_entry_time, datetime):
+                    entry_time = raw_entry_time
+                else:
+                    entry_time = datetime.fromisoformat(raw_entry_time)
                 if entry_time.tzinfo is None:
                     entry_time = entry_time.replace(tzinfo=timezone.utc)
                 duration = datetime.now(timezone.utc) - entry_time
