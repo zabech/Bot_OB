@@ -105,7 +105,7 @@ def build_signal_message(
         f"🛑 Stop Loss   : {signal['sl']:.4g} "
         f"({signal['sl_method']}, ATR{ATR_PERIOD}={signal['atr_str']})\n"
         f"🎯 Take Profit : {signal['tp']:.4g} "
-        f"(R:R 1:{RISK_REWARD_RATIO:.0f})\n"
+        f"(R:R 1:{RISK_REWARD_RATIO:g})\n"
         f"⚠️ Risk        : {signal['risk_pct']:.2f}%\n"
         f"📊 Trend ({htf}): {signal['trend_text']}\n"
         f"🕐 Sesi        : {session_name} "
