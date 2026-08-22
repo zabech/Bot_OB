@@ -19,7 +19,7 @@ def init_db():
     """Inisialisasi database dan buat tabel jika belum ada."""
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
             id SERIAL PRIMARY KEY,
@@ -35,34 +35,75 @@ def init_db():
             entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             status VARCHAR(20) DEFAULT 'open',
             pnl_pct DECIMAL(10,2),
+            resolved_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
     conn.commit()
     cursor.close()
     conn.close()
     logger.info("Database initialized successfully")
 
+
+def _column_exists(cursor, column_name: str) -> bool:
+    """Cek apakah kolom sudah ada di tabel alerts."""
+    cursor.execute("""
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'alerts'
+          AND column_name = %s
+    """, (column_name,))
+    return cursor.fetchone() is not None
+
+
+def _add_column_if_missing(cursor, column_name: str, column_def: str) -> bool:
+    """
+    Tambahkan kolom ke tabel alerts jika belum ada.
+    Return True jika kolom baru ditambahkan, False jika sudah ada.
+    """
+    if _column_exists(cursor, column_name):
+        return False
+    try:
+        cursor.execute(
+            f"ALTER TABLE alerts ADD COLUMN {column_name} {column_def}"
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"⚠️ Gagal menambahkan kolom {column_name}: {e}")
+        return False
+
+
 def migrate_db():
-    """Tambahkan kolom entry_time jika belum ada (untuk database existing)."""
+    """
+    Migrasi schema untuk database yang sudah ada.
+    Menambahkan kolom yang mungkin belum ada di instalasi lama:
+    - entry_time
+    - pnl_pct
+    - resolved_at   ← penting: dipakai oleh resolve_alert()
+    """
     conn = get_connection()
     cursor = conn.cursor()
-    
-    try:
-        cursor.execute("""
-            ALTER TABLE alerts ADD COLUMN entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        """)
-        conn.commit()
-        logger.info("✅ Kolom entry_time berhasil ditambahkan")
-    except Exception as e:
-        if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
-            logger.info("ℹ️ Kolom entry_time sudah ada")
-        else:
-            logger.warning(f"⚠️ Error migrasi: {e}")
-    
+
+    columns_to_add = [
+        ("entry_time", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+        ("pnl_pct", "DECIMAL(10,2)"),
+        ("resolved_at", "TIMESTAMP"),
+    ]
+
+    added = []
+    for col_name, col_def in columns_to_add:
+        if _add_column_if_missing(cursor, col_name, col_def):
+            added.append(col_name)
+
+    conn.commit()
     cursor.close()
     conn.close()
+
+    if added:
+        logger.info(f"✅ Migrasi DB: kolom baru ditambahkan → {', '.join(added)}")
+    else:
+        logger.info("ℹ️ Migrasi DB: semua kolom sudah lengkap")
 
 def record_alert(symbol, zone_type, htf, ltf, entry_price, zone_top, zone_bottom, invalidation, target, entry_time=None):
     """Catat alert baru ke database."""
