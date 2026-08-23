@@ -21,6 +21,14 @@ basic auth. Untuk produksi, sebaiknya juga taruh di belakang firewall
 
 from datetime import datetime, timezone
 
+# PENTING: load .env SEBELUM import db — db.py membaca DATABASE_URL
+# langsung saat modul di-import (bukan lazy), jadi kalau .env belum
+# ke-load duluan, DATABASE_URL kebaca None dan semua query gagal
+# dengan RuntimeError begitu ada request masuk (muncul sebagai 500
+# Internal Server Error di browser/curl).
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask, Response, request
 
 import db
@@ -367,7 +375,17 @@ def render_top_pairs_table(top_pairs) -> str:
 
 @app.route("/")
 def dashboard():
-    data = get_dashboard_data()
+    try:
+        data = get_dashboard_data()
+    except Exception as e:
+        return (
+            f"<h1>Error mengambil data dashboard</h1>"
+            f"<pre>{type(e).__name__}: {e}</pre>"
+            f"<p>Cek apakah DATABASE_URL sudah benar di .env, dan database "
+            f"bisa diakses dari VPS ini.</p>",
+            500,
+        )
+
     stats = data["stats"]
     daily = data["daily_stats"]
     pnl_summary = data["pnl_summary"] or {}
