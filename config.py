@@ -54,6 +54,12 @@ MACRO_REFRESH_MINUTES = int(os.environ.get("MACRO_REFRESH_MINUTES", "60"))
 # Slippage adalah estimasi kasar selisih harga fill vs harga sinyal.
 TAKER_FEE_PERCENT = float(os.environ.get("TAKER_FEE_PERCENT", "0.05"))
 SLIPPAGE_PERCENT = float(os.environ.get("SLIPPAGE_PERCENT", "0.02"))
+
+# ── Web Dashboard (webapp.py) ──
+DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT", "5000"))
+DASHBOARD_USERNAME = os.environ.get("DASHBOARD_USERNAME", "")
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
+DASHBOARD_REFRESH_SECONDS = int(os.environ.get("DASHBOARD_REFRESH_SECONDS", "30"))
 SWING_LOOKBACK = int(os.environ.get("SWING_LOOKBACK", "10"))
 
 # Filter sesi trading (jam dalam UTC)
