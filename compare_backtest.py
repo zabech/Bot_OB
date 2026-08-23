@@ -37,7 +37,7 @@ PYTHON = sys.executable
 # Semua skenario dites di window waktu yang SAMA (12 bulan) biar adil.
 
 MONTHS = "24"
-SYMBOLS = "BTC-USDT-SWAP,ETH-USDT-SWAP,SOL-USDT-SWAP"
+SYMBOLS = "GPS-USDT-SWAP,ZIL-USDT-SWAP"
 HTF = "4H"
 
 SCENARIOS = [
