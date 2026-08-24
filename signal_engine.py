@@ -141,7 +141,10 @@ async def send_signal(
         message,
     )
 
-    zone["mitigated"] = True
+    # Tandai sudah alert untuk visit ini — JANGAN mark mitigated.
+    # Mitigated hanya di-set kalau harga benar-benar menembus zona (50%/penuh).
+    # Kalau harga keluar lalu masuk lagi nanti, alerted di-reset → boleh alert ulang.
+    zone["alerted"] = True
     logger.info(f"[{symbol}] Alert terkirim ke Telegram.")
 
     save_active_trade(
@@ -201,6 +204,28 @@ def normalize_htf_candles(htf_df):
         return htf_df.to_dict("records")
     return htf_df
 
+def is_zone_mitigated_by_price(zone: dict, current_price: float) -> bool:
+    """
+    Cek apakah harga saat ini sudah menembus zona (invalidasi struktural).
+    - MITIGATION_50PCT=true  → tembus midpoint zona
+    - MITIGATION_50PCT=false → tembus full (bottom untuk bullish / top untuk bearish)
+    """
+    top = zone["top"]
+    bottom = zone["bottom"]
+    midpoint = (top + bottom) / 2.0
+
+    if zone["type"] == "bullish":
+        threshold = midpoint if MITIGATION_50PCT else bottom
+        return current_price < threshold
+    else:
+        threshold = midpoint if MITIGATION_50PCT else top
+        return current_price > threshold
+
+
+def is_price_inside_zone(zone: dict, current_price: float) -> bool:
+    return zone["bottom"] <= current_price <= zone["top"]
+
+
 async def validate_zone(
     symbol: str,
     zone: dict,
@@ -211,28 +236,61 @@ async def validate_zone(
     """
     Validasi apakah zona layak mengirim sinyal.
     Return True jika lolos semua filter.
+
+    State zona:
+    - mitigated : zona invalid secara struktural (harga tembus 50%/penuh) → mati permanen
+    - alerted   : sudah kirim alert saat harga di dalam zona (visit ini).
+                  Di-reset kalau harga keluar zona, supaya re-entry bisa alert lagi.
     """
 
-    if zone["mitigated"]:
+    # 1) Sudah mitigated struktural → skip permanen
+    if zone.get("mitigated"):
         logger.info(f"[{symbol}] Zona {zone['type']} sudah mitigated, skip.")
         return False
 
-    if not (zone["bottom"] <= current_price <= zone["top"]):
+    # 2) Harga saat ini menembus zona → mark mitigated, skip
+    if is_zone_mitigated_by_price(zone, current_price):
+        zone["mitigated"] = True
+        zone["alerted"] = False
+        logger.info(
+            f"[{symbol}] Zona {zone['type']} MITIGATED oleh harga "
+            f"({current_price:.4g}), skip."
+        )
         return False
 
+    # 3) Harga di luar zona (belum mitigated) → reset alerted, skip (tunggu re-entry)
+    if not is_price_inside_zone(zone, current_price):
+        if zone.get("alerted"):
+            zone["alerted"] = False
+            logger.info(
+                f"[{symbol}] Harga keluar zona {zone['type']} — "
+                f"reset alerted (siap alert ulang saat re-entry)."
+            )
+        return False
+
+    # 4) Harga di dalam zona tapi sudah alert di visit ini → skip (hindari spam)
+    if zone.get("alerted"):
+        logger.info(
+            f"[{symbol}] Zona {zone['type']} sudah alerted di visit ini, skip."
+        )
+        return False
+
+    # 5) Candle LTF harus sudah close
     if not candle_is_closed(ltf_df, LTF):
         logger.info(f"[{symbol}] BLOCKED — candle LTF belum close.")
         return False
 
+    # 6) Konfirmasi reaksi LTF
     if not ltf_shows_reaction(ltf_df, zone):
         logger.info(f"[{symbol}] BLOCKED — ltf_shows_reaction gagal.")
         return False
 
+    # 7) Trend filter (JANGAN mark mitigated kalau gagal — trend bisa berubah)
     if not trend_allows_zone(zone, current_price, htf_candles_list):
         logger.info(f"[{symbol}] BLOCKED — zona berlawanan dengan trend.")
-        zone["mitigated"] = True
         return False
 
+    # 8) Macro filter
     if USE_MACRO_FILTER:
         regime = get_current_macro_regime()
         if regime is not None and zone["type"] != regime:
@@ -324,4 +382,4 @@ async def send_telegram_alert(app, message):
     await app.bot.send_message(
         chat_id=CHAT_ID,
         text=message,
-    )
+                               )
