@@ -170,6 +170,43 @@ def _find_swing_low(candles: list, start: int, lookback: int = 10) -> Optional[f
     return min(c["low"] for c in window)
 
 
+def _has_liquidity_sweep(candles: list, ob_index: int, ob_type: str,
+                          swing_lookback: int = 10, sweep_lookback: int = 3) -> bool:
+    """
+    Cek Liquidity Sweep: pada/menjelang OB candle, harga sempat menembus
+    (wick) swing high/low terdekat lalu CLOSE kembali di sisi sebaliknya —
+    tanda "stop hunt" (pengambilan likuiditas) sebelum harga reversal.
+    Ini beda dari BOS: BOS mengecek momentum SETELAH OB, sweep mengecek
+    rejection SEBELUM/PADA OB candle itu sendiri.
+
+    - Bullish OB: salah satu candle harus wick di BAWAH swing low
+      (mengambil stop-loss/likuiditas sisi jual) tapi close kembali di
+      ATAS swing low itu (rejection → bukti smart money mengumpulkan
+      demand sebelum harga naik)
+    - Bearish OB: salah satu candle harus wick di ATAS swing high
+      (mengambil likuiditas sisi beli) tapi close kembali di BAWAHnya
+
+    sweep_lookback: jumlah candle (termasuk OB candle sendiri) yang
+    dicek ke belakang untuk sweep — toleran kalau sweep terjadi 1-2
+    candle sebelum OB candle terbentuk, bukan cuma persis di situ.
+    """
+    check_start = max(0, ob_index - sweep_lookback + 1)
+    check_candles = candles[check_start:ob_index + 1]
+    if not check_candles:
+        return False
+
+    if ob_type == "bullish":
+        swing = _find_swing_low(candles, check_start, swing_lookback)
+        if swing is None:
+            return True  # tidak ada data swing, lewatkan filter (konsisten dgn BOS)
+        return any(c["low"] < swing and c["close"] > swing for c in check_candles)
+    else:
+        swing = _find_swing_high(candles, check_start, swing_lookback)
+        if swing is None:
+            return True
+        return any(c["high"] > swing and c["close"] < swing for c in check_candles)
+
+
 def _has_break_of_structure(candles: list, ob_index: int, ob_type: str,
                              impulse_end: int, swing_lookback: int = 10) -> bool:
     """
@@ -274,6 +311,7 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                          volume_multiplier: float,
                          require_bos: bool = True,
                          require_fvg: bool = False,
+                         require_liquidity_sweep: bool = False,
                          mitigation_50pct: bool = True,
                          swing_lookback: int = 10,
                          use_atr_impulse: bool = True,
@@ -357,6 +395,10 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
             if require_fvg and not _has_fvg_near_ob(candles, i, ob_type):
                 continue
 
+            # ── Filter 4b: Liquidity Sweep (opsional) ──
+            if require_liquidity_sweep and not _has_liquidity_sweep(candles, i, ob_type, swing_lookback):
+                continue
+
             # ── Filter 5: Mitigation 50% ──
             if mitigation_50pct:
                 mitigated = _is_mitigated_50pct(candles, i, zone_top, zone_bottom, ob_type)
@@ -371,6 +413,7 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                     "index": i, 
                     "mitigated": False,
                     "has_fvg": _has_fvg_near_ob(candles, i, ob_type),
+                    "has_liquidity_sweep": _has_liquidity_sweep(candles, i, ob_type, swing_lookback),
                 })
 
         # ── BULLISH CANDLE → BEARISH OB ──
@@ -402,6 +445,10 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
             if require_fvg and not _has_fvg_near_ob(candles, i, ob_type):
                 continue
 
+            # ── Filter 4b: Liquidity Sweep (opsional) ──
+            if require_liquidity_sweep and not _has_liquidity_sweep(candles, i, ob_type, swing_lookback):
+                continue
+
             # ── Filter 5: Mitigation 50% ──
             if mitigation_50pct:
                 mitigated = _is_mitigated_50pct(candles, i, zone_top, zone_bottom, ob_type)
@@ -416,6 +463,7 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                     "index": i, 
                     "mitigated": False,
                     "has_fvg": _has_fvg_near_ob(candles, i, ob_type),
+                    "has_liquidity_sweep": _has_liquidity_sweep(candles, i, ob_type, swing_lookback),
                 })
 
     zones.sort(key=lambda z: z["index"], reverse=True)
