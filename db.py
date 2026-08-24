@@ -1,6 +1,8 @@
 import os
 import logging
+import threading
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timezone
 
@@ -9,11 +11,81 @@ logger = logging.getLogger(__name__)
 # Database connection
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+# Pool size bisa diubah lewat env (default: min 1, max 10)
+DB_POOL_MIN = int(os.environ.get("DB_POOL_MIN", "1"))
+DB_POOL_MAX = int(os.environ.get("DB_POOL_MAX", "10"))
+
+_db_pool = None
+_pool_lock = threading.Lock()
+
+
+class _PooledConnection:
+    """
+    Wrapper tipis di atas koneksi pool.
+    Pemanggilan .close() mengembalikan koneksi ke pool (bukan putus TCP).
+    Semua method/atribut lain di-delegate ke koneksi asli.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def close(self):
+        global _db_pool
+        if _db_pool is not None and self._conn is not None:
+            try:
+                # Rollback transaksi yang belum di-commit supaya koneksi bersih
+                if not self._conn.closed:
+                    self._conn.rollback()
+                _db_pool.putconn(self._conn)
+            except Exception as e:
+                logger.warning(f"Gagal mengembalikan koneksi ke pool: {e}")
+            finally:
+                self._conn = None
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+
+def _ensure_pool():
+    """Inisialisasi connection pool (thread-safe, sekali saja)."""
+    global _db_pool
+    if _db_pool is not None:
+        return
+    with _pool_lock:
+        if _db_pool is not None:
+            return
+        if not DATABASE_URL:
+            raise RuntimeError("DATABASE_URL environment variable not set")
+        _db_pool = pool.ThreadedConnectionPool(
+            DB_POOL_MIN,
+            DB_POOL_MAX,
+            DATABASE_URL,
+        )
+        logger.info(
+            f"DB connection pool siap (min={DB_POOL_MIN}, max={DB_POOL_MAX})"
+        )
+
+
 def get_connection():
-    """Buat koneksi ke PostgreSQL."""
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL environment variable not set")
-    return psycopg2.connect(DATABASE_URL)
+    """
+    Ambil koneksi dari pool.
+    WAJIB panggil conn.close() setelah selesai — itu mengembalikan
+    koneksi ke pool, bukan menutup koneksi fisik.
+    """
+    _ensure_pool()
+    try:
+        conn = _db_pool.getconn()
+    except Exception as e:
+        logger.error(f"Gagal ambil koneksi dari pool: {e}")
+        raise
+    return _PooledConnection(conn)
 
 def init_db():
     """Inisialisasi database dan buat tabel jika belum ada."""
