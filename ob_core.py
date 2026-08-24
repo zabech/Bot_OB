@@ -412,6 +412,7 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                     "bottom": zone_bottom,
                     "index": i, 
                     "mitigated": False,
+                    "alerted": False,
                     "has_fvg": _has_fvg_near_ob(candles, i, ob_type),
                     "has_liquidity_sweep": _has_liquidity_sweep(candles, i, ob_type, swing_lookback),
                 })
@@ -462,6 +463,7 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                     "bottom": zone_bottom,
                     "index": i, 
                     "mitigated": False,
+                    "alerted": False,
                     "has_fvg": _has_fvg_near_ob(candles, i, ob_type),
                     "has_liquidity_sweep": _has_liquidity_sweep(candles, i, ob_type, swing_lookback),
                 })
@@ -525,12 +527,20 @@ def ltf_shows_reaction_advanced(ltf_data, zone: dict) -> bool:
     return False
 
 def merge_zone_state(old_zones: list, new_zones: list) -> list:
+    """
+    Sinkronkan state antar scan:
+    - mitigated  → zona sudah invalid secara struktural (harga tembus 50%/penuh)
+    - alerted    → sudah pernah kirim alert saat harga di dalam zona (visit ini)
+    """
     for new_zone in new_zones:
+        new_zone.setdefault("mitigated", False)
+        new_zone.setdefault("alerted", False)
         for old_zone in old_zones:
             if (old_zone["type"] == new_zone["type"]
                     and abs(old_zone["top"] - new_zone["top"]) < 1e-6
                     and abs(old_zone["bottom"] - new_zone["bottom"]) < 1e-6):
-                new_zone["mitigated"] = old_zone["mitigated"]
+                new_zone["mitigated"] = old_zone.get("mitigated", False)
+                new_zone["alerted"] = old_zone.get("alerted", False)
     return new_zones
 
 
@@ -570,4 +580,3 @@ def calculate_risk_reward(zone: dict, current_price: float, target: Optional[flo
     reward = abs(target - current_price)
     ratio = reward / risk
     return f"1:{ratio:.1f}"
-
