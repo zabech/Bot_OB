@@ -7,10 +7,8 @@ from market_utils import get_macro_regime
 
 logger = logging.getLogger(__name__)
 
-top_pairs_cache = {
-    "symbols": [],
-    "last_refresh": 0,
-}
+# top_pairs_cache hidup di config.py (satu sumber state).
+# Jangan definisikan ulang di sini — akan men-shadow import dari config.
 
 macro_regime_cache = {
     "regime": None,
