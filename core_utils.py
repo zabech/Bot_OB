@@ -78,6 +78,7 @@ def detect_order_blocks(candles, max_zones: int) -> list:
         candles, max_zones, IMPULSE_MIN_PERCENT, VOLUME_MULTIPLIER,
         require_bos=REQUIRE_BOS,
         require_fvg=REQUIRE_FVG,
+        require_liquidity_sweep=REQUIRE_LIQUIDITY_SWEEP,
         mitigation_50pct=MITIGATION_50PCT,
         swing_lookback=SWING_LOOKBACK,
         use_atr_impulse=USE_ATR_IMPULSE,
