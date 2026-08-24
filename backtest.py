@@ -521,6 +521,7 @@ def simulate_pair(
                 VOLUME_MULTIPLIER,
                 require_bos=REQUIRE_BOS,
                 require_fvg=REQUIRE_FVG,
+                require_liquidity_sweep=REQUIRE_LIQUIDITY_SWEEP,
                 mitigation_50pct=MITIGATION_50PCT,
                 swing_lookback=SWING_LOOKBACK,
                 use_atr_impulse=USE_ATR_IMPULSE,
@@ -985,6 +986,10 @@ def print_summary(
 
     print(
         f"FVG required       : {REQUIRE_FVG}"
+    )
+
+    print(
+        f"Liquidity sweep    : {REQUIRE_LIQUIDITY_SWEEP}"
     )
 
     print(
