@@ -1,4 +1,3 @@
-import time
 from datetime import datetime, timezone
 
 import db
@@ -26,6 +25,60 @@ from utils import (
 
 from config import *
 
+def _sanitize_sl_tp(zone_type: str, entry: float, sl: float, tp: float) -> tuple:
+    """
+    Pastikan SL/TP geometri valid dan bisa dicapai:
+    - Harga > 0 (pair USDT tidak punya harga negatif)
+    - Bullish: SL < entry < TP
+    - Bearish: TP < entry < SL
+    - Kalau risk terlalu besar hingga TP bearish ≤ 0, risk di-cap ulang
+    Return: (sl, tp, risk) atau (None, None, None) jika tidak bisa disanitasi
+    """
+    if entry is None or entry <= 0:
+        return (None, None, None)
+
+    if zone_type == "bullish":
+        # SL harus di bawah entry, tetap positif
+        if sl is None or sl >= entry:
+            sl = entry * (1 - max(SL_BUFFER_PERCENT, 0.5) / 100)
+        sl = max(sl, entry * 1e-6)
+
+        risk = entry - sl
+        if risk <= 0:
+            return (None, None, None)
+
+        tp = entry + risk * RISK_REWARD_RATIO
+        if tp <= entry:
+            return (None, None, None)
+        return (sl, tp, risk)
+
+    else:  # bearish
+        # SL harus di atas entry
+        if sl is None or sl <= entry:
+            sl = entry * (1 + max(SL_BUFFER_PERCENT, 0.5) / 100)
+
+        risk = sl - entry
+        if risk <= 0:
+            return (None, None, None)
+
+        tp = entry - risk * RISK_REWARD_RATIO
+
+        # TP tidak boleh ≤ 0 — cap risk supaya TP minimal \~1% dari entry
+        min_tp = entry * 0.01
+        if tp < min_tp:
+            max_risk = (entry - min_tp) / RISK_REWARD_RATIO
+            if max_risk <= 0:
+                return (None, None, None)
+            risk = min(risk, max_risk)
+            sl = entry + risk  # sesuaikan SL dengan risk yang di-cap
+            tp = entry - risk * RISK_REWARD_RATIO
+            tp = max(tp, min_tp)
+
+        if tp >= entry or tp <= 0:
+            return (None, None, None)
+        return (sl, tp, risk)
+
+
 def build_signal_data(
     zone,
     current_price,
@@ -33,6 +86,8 @@ def build_signal_data(
 ):
     """
     Hitung seluruh data yang dibutuhkan untuk alert.
+    Return dict, atau None jika SL/TP tidak bisa dihitung secara valid
+    (mis. risk terlalu besar hingga TP bearish negatif).
     """
 
     sl, sl_method = calculate_sl_with_atr(
@@ -41,12 +96,13 @@ def build_signal_data(
         htf_candles_list,
     )
 
-    risk = abs(current_price - sl)
-
-    if zone["type"] == "bullish":
-        tp = current_price + risk * RISK_REWARD_RATIO
-    else:
-        tp = current_price - risk * RISK_REWARD_RATIO
+    sl, tp, risk = _sanitize_sl_tp(zone["type"], current_price, sl, None)
+    if sl is None:
+        logger.warning(
+            f"SL/TP tidak valid untuk zona {zone['type']} @ {current_price:.4g} "
+            f"(raw SL dari ATR/buffer tidak bisa disanitasi) — sinyal dibatalkan."
+        )
+        return None
 
     risk_pct = risk / current_price * 100
 
@@ -128,6 +184,12 @@ async def send_signal(
         current_price,
         htf_candles_list,
     )
+    if signal is None:
+        logger.warning(
+            f"[{symbol}] Sinyal dibatalkan — SL/TP tidak valid "
+            f"(harga={current_price:.4g}, zona={zone['type']})."
+        )
+        return
 
     message = build_signal_message(
         symbol,
@@ -146,7 +208,6 @@ async def send_signal(
     # Mitigated hanya di-set kalau harga benar-benar menembus zona (50%/penuh).
     # Kalau harga keluar lalu masuk lagi nanti, alerted di-reset → boleh alert ulang.
     zone["alerted"] = True
-    last_alert_times[symbol] = time.time()
     logger.info(f"[{symbol}] Alert terkirim ke Telegram.")
 
     save_active_trade(
@@ -227,16 +288,6 @@ def is_zone_mitigated_by_price(zone: dict, current_price: float) -> bool:
 def is_price_inside_zone(zone: dict, current_price: float) -> bool:
     return zone["bottom"] <= current_price <= zone["top"]
 
-def is_in_cooldown(symbol: str) -> bool:
-    """
-    Cek apakah pair masih dalam masa cooldown setelah alert terakhir.
-    Return True jika masih cooldown (jangan kirim alert baru).
-    """
-    last_ts = last_alert_times.get(symbol)
-    if last_ts is None:
-        return False
-    elapsed_minutes = (time.time() - last_ts) / 60.0
-    return elapsed_minutes < ALERT_COOLDOWN_MINUTES
 
 async def validate_zone(
     symbol: str,
@@ -284,15 +335,6 @@ async def validate_zone(
     if zone.get("alerted"):
         logger.info(
             f"[{symbol}] Zona {zone['type']} sudah alerted di visit ini, skip."
-        )
-        return False
-
-    # 4b) Cooldown per pair — cegah spam alert beruntun
-    if is_in_cooldown(symbol):
-        remaining = ALERT_COOLDOWN_MINUTES - (time.time() - last_alert_times[symbol]) / 60.0
-        logger.info(
-            f"[{symbol}] BLOCKED — masih cooldown "
-            f"({remaining:.0f} menit tersisa dari {ALERT_COOLDOWN_MINUTES} menit)."
         )
         return False
 
@@ -403,4 +445,4 @@ async def send_telegram_alert(app, message):
     await app.bot.send_message(
         chat_id=CHAT_ID,
         text=message,
-                               )
+    )
