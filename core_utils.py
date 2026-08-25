@@ -7,13 +7,8 @@ from market_utils import get_macro_regime
 
 logger = logging.getLogger(__name__)
 
-# top_pairs_cache hidup di config.py (satu sumber state).
-# Jangan definisikan ulang di sini — akan men-shadow import dari config.
-
-macro_regime_cache = {
-    "regime": None,
-    "last_refresh": 0,
-}
+# Runtime state (top_pairs_cache, macro_regime_cache, dll.) hidup di state.py
+# dan di-re-export lewat config — jangan definisikan ulang di sini.
 
 def get_top_volume_pairs(n: int, quote: str) -> list:
     return ob_core.get_top_volume_pairs(n, quote, MIN_VOLUME_USD)
