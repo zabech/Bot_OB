@@ -6,6 +6,46 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def _is_trade_geometry_invalid(trade: dict) -> bool:
+    """
+    Deteksi trade dengan SL/TP mustahil dicapai (contoh TP negatif / di sisi salah).
+    Trade seperti ini harus ditutup paksa supaya pair tidak terkunci selamanya.
+    """
+    try:
+        entry = float(trade["entry"])
+        sl = float(trade["sl"])
+        tp = trade.get("tp")
+        zone_type = trade["zone_type"]
+    except (KeyError, TypeError, ValueError):
+        return True
+
+    if entry <= 0:
+        return True
+    if sl is None:
+        return True
+
+    # SL/TP tidak boleh ≤ 0 untuk pair USDT
+    if sl <= 0:
+        return True
+    if tp is not None and float(tp) <= 0:
+        return True
+
+    if zone_type == "bullish":
+        # Harus: SL < entry < TP
+        if sl >= entry:
+            return True
+        if tp is not None and float(tp) <= entry:
+            return True
+    else:
+        # Harus: TP < entry < SL
+        if sl <= entry:
+            return True
+        if tp is not None and float(tp) >= entry:
+            return True
+
+    return False
+
+
 async def check_active_trade(app, symbol: str, current_price: float) -> bool:
     """
     Cek apakah trade aktif untuk pair ini sudah resolved (TP atau SL tercapai).
@@ -23,6 +63,40 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
     entry = trade["entry"]
     htf = trade["htf"]
     breakeven_triggered = trade.get("breakeven_triggered", False)
+
+    # ── Trade invalid (TP negatif / geometri salah) → tutup paksa ──
+    if _is_trade_geometry_invalid(trade):
+        entry_time = trade.get("entry_time")
+        duration_str = format_duration(entry_time) if entry_time else "N/A"
+        try:
+            pnl_pct = (current_price - entry) / entry * 100
+            if zone_type == "bearish":
+                pnl_pct = -pnl_pct
+        except Exception:
+            pnl_pct = 0.0
+
+        await app.bot.send_message(
+            chat_id=CHAT_ID,
+            text=(
+                f"⚠️ {symbol} TRADE DITUTUP (target tidak valid)\n"
+                f"Timeframe: {htf} | {zone_type.capitalize()}\n"
+                f"Entry: {entry:.4g} | SL: {sl} | TP: {tp}\n"
+                f"Alasan: SL/TP tidak masuk akal (mis. TP ≤ 0 atau di sisi salah).\n"
+                f"PnL mark-to-market: {pnl_pct:+.2f}%\n"
+                f"⏱️ Durasi: {duration_str}\n\n"
+                f"Pair kini terbuka untuk sinyal berikutnya."
+            ),
+        )
+        del active_trades[symbol]
+        try:
+            db.resolve_alert_by_symbol(symbol, "invalidated", pnl_pct=pnl_pct)
+        except Exception as e:
+            logger.debug(e)
+        logger.warning(
+            f"[{symbol}] Trade ditutup paksa karena geometri SL/TP invalid "
+            f"(entry={entry}, sl={sl}, tp={tp})."
+        )
+        return False
 
     # Guard: kalau tp None, skip cek TP
     if tp is None:
