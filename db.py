@@ -411,3 +411,21 @@ def get_daily_stats():
         }
     finally:
         conn.close()
+
+def get_last_alert_times() -> dict:
+    """
+    Ambil timestamp alert terakhir per symbol (untuk restore cooldown setelah restart).
+    Return: { "BTC-USDT-SWAP": unix_timestamp_float, ... }
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT symbol, MAX(EXTRACT(EPOCH FROM COALESCE(entry_time, created_at)))
+                FROM alerts
+                GROUP BY symbol
+            """)
+            rows = cur.fetchall()
+        return {row[0]: float(row[1]) for row in rows if row[1] is not None}
+    finally:
+        conn.close()
