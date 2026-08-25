@@ -4,6 +4,19 @@ load_dotenv()
 import os
 import logging
 
+# ── Runtime state (re-export dari state.py) ──────────────────────
+# State yang berubah saat bot jalan TIDAK disimpan di config lagi.
+# Diimpor ulang di sini supaya `from config import active_trades` /
+# `from config import *` tetap kompatibel dengan kode lama.
+from state import (  # noqa: E402
+    active_zones,
+    active_trades,
+    top_pairs_cache,
+    last_alert_times,
+    last_health_alert_time,
+    macro_regime_cache,
+)
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 USE_ATR_IMPULSE = os.environ.get("USE_ATR_IMPULSE", "true").lower() == "true"
@@ -96,20 +109,3 @@ DAILY_SUMMARY_MINUTE_UTC = int(os.environ.get("DAILY_SUMMARY_MINUTE_UTC", "0"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-# Zona aktif per (symbol, timeframe): { "BTC-USDT-SWAP": {"1D": [...], "4H": [...]}, ... }
-active_zones = {}
-
-# Cache daftar top pair, di-refresh berkala
-top_pairs_cache = {"symbols": [], "last_refresh": 0}
-
-# Trade aktif per pair — pair tidak boleh kirim sinyal baru sampai TP/SL tercapai
-# Format: { "BTC-USDT-SWAP": {"entry": 65000, "sl": 64200, "tp": 66600, "zone_type": "bullish", "htf": "4H"} }
-active_trades = {}
-
-# Timestamp alert terakhir per pair (unix seconds) — untuk enforce ALERT_COOLDOWN_MINUTES
-# Format: { "BTC-USDT-SWAP": 1712345678.0, ... }
-last_alert_times = {}
-
-# Timestamp health alert terakhir, untuk hindari spam notifikasi "bot bermasalah"
-last_health_alert_time = {"ts": 0}
