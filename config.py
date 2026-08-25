@@ -49,7 +49,7 @@ ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "2.0"))          # SL = 
 
 # Konfigurasi deteksi OB tingkat lanjut
 REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
-REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
+REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "true").lower() == "true"
 REQUIRE_LIQUIDITY_SWEEP = os.environ.get("REQUIRE_LIQUIDITY_SWEEP", "false").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
 DIRECTION_FILTER = os.environ.get("DIRECTION_FILTER", "all").lower()  # "all" / "bullish" / "bearish"
@@ -84,7 +84,7 @@ SESSION_NY_START = int(os.environ.get("SESSION_NY_START", "13"))
 SESSION_NY_END = int(os.environ.get("SESSION_NY_END", "22"))
 
 # Scanner multi-pair (OKX Futures - USDT-margined swap/perpetual)
-TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", "30"))
+TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", "40"))
 PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "5"))
 BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", "2"))
