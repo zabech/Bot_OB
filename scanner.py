@@ -57,21 +57,40 @@ async def check_symbol(app, symbol: str) -> bool:
 
 async def check_and_alert(app):
     symbols = get_active_symbols()
-    if not symbols:
+
+    # PENTING: pair yang masih punya trade aktif HARUS tetap dicek,
+    # meski sudah keluar dari daftar top volume. Tanpa ini, trade bisa
+    # "mengambang" berbulan-bulan (TP/SL tidak pernah dievaluasi).
+    trade_only = [s for s in active_trades.keys() if s not in symbols]
+    if trade_only:
+        logger.info(
+            f"{len(trade_only)} pair hanya ada di active_trades "
+            f"(sudah di luar top volume) — tetap dipantau: {trade_only[:5]}"
+            f"{'...' if len(trade_only) > 5 else ''}"
+        )
+
+    # Gabungkan: top volume dulu, lalu pair trade-only (tanpa duplikat)
+    all_symbols = list(symbols) + trade_only
+
+    if not all_symbols:
         logger.warning("Belum ada daftar pair untuk dipantau.")
         return
 
-    logger.info(f"Mulai scan {len(symbols)} pair (batch size {BATCH_SIZE})...")
+    logger.info(
+        f"Mulai scan {len(all_symbols)} pair "
+        f"({len(symbols)} top volume + {len(trade_only)} trade aktif) "
+        f"(batch size {BATCH_SIZE})..."
+    )
 
     failed_count = 0
-    for i in range(0, len(symbols), BATCH_SIZE):
-        batch = symbols[i:i + BATCH_SIZE]
+    for i in range(0, len(all_symbols), BATCH_SIZE):
+        batch = all_symbols[i:i + BATCH_SIZE]
         results = await asyncio.gather(*(check_symbol(app, s) for s in batch))
         failed_count += results.count(False)
-        if i + BATCH_SIZE < len(symbols):
+        if i + BATCH_SIZE < len(all_symbols):
             await asyncio.sleep(BATCH_DELAY_SECONDS)
 
-    total = len(symbols)
+    total = len(all_symbols)
     failure_pct = (failed_count / total * 100) if total else 0
     logger.info(f"Scan selesai: {total - failed_count}/{total} pair berhasil ({failure_pct:.0f}% gagal).")
 
