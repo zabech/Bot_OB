@@ -7,6 +7,7 @@ import ob_core
 
 from config import (
     active_trades,
+    last_alert_times,
     CHECK_INTERVAL_MINUTES,
     TOP_N_PAIRS,
     HTF_LIST,
@@ -17,6 +18,7 @@ from config import (
     RISK_REWARD_RATIO,
     REQUIRE_BOS,
     IMPULSE_MIN_PERCENT,
+    ALERT_COOLDOWN_MINUTES,
 )
 from scanner import check_and_alert
 from stats import send_daily_summary
@@ -88,6 +90,17 @@ async def on_startup(app):
                     "entry_time": entry_time,
                     "breakeven_triggered": breakeven_triggered,
                 }
+
+                # Restore cooldown state dari histori alert di DB
+                try:
+                    loaded = db.get_last_alert_times()
+                    last_alert_times.update(loaded)
+                    logger.info(
+                        f"Loaded last_alert_times untuk {len(loaded)} pair "
+                        f"(cooldown {ALERT_COOLDOWN_MINUTES} menit)."
+                    )
+                except Exception as e:
+                    logger.warning(f"Gagal load last_alert_times dari DB: {e}")
 
                 # Update DB kalau TP sebelumnya NULL
                 if not alert["target"]:
