@@ -99,7 +99,6 @@ def fetch_history_raw(
 
     return result
 
-
 def fetch_full_history_raw(
     symbol: str,
     interval: str,
@@ -107,14 +106,25 @@ def fetch_full_history_raw(
     end_ts_ms: int,
 ) -> list:
     """
-    Ambil seluruh histori dengan paging.
+    Ambil seluruh histori dengan paging mundur via parameter `after`.
+
+    CATATAN PENTING:
+    - OKX history-candles sering TIDAK punya data sepanjang yang diminta
+      (batas internal exchange + umur listing pair).
+    - Kalau data terlama yang tersedia > start_ts_ms, hasil 24 bulan
+      dan 36 bulan bisa IDENTIK — itu batas data, bukan bug months.
     """
 
     all_rows = []
 
     cursor_after = str(end_ts_ms)
+    # Safety: cegah loop tak terbatas kalau API terus mengembalikan
+    # halaman yang sama / tidak mundur.
+    max_pages = 500
+    pages = 0
+    prev_oldest = None
 
-    while True:
+    while pages < max_pages:
 
         page = fetch_history_raw(
             symbol,
@@ -127,12 +137,23 @@ def fetch_full_history_raw(
             break
 
         all_rows = page + all_rows
+        pages += 1
 
         oldest_ts = page[0]["ts"]
 
         if oldest_ts <= start_ts_ms:
             break
 
+        # API tidak maju ke masa lalu → berhenti
+        if prev_oldest is not None and oldest_ts >= prev_oldest:
+            logger.warning(
+                f"[{symbol}] {interval}: paging berhenti lebih awal "
+                f"(oldest tidak mundur, ts={oldest_ts}). "
+                f"Kemungkinan batas histori OKX."
+            )
+            break
+
+        prev_oldest = oldest_ts
         cursor_after = str(oldest_ts)
 
         time.sleep(0.2)
@@ -154,8 +175,25 @@ def fetch_full_history_raw(
         seen.add(ts)
         result.append(row)
 
-    return result
+    if result:
+        first = datetime.fromtimestamp(result[0]["ts"] / 1000, tz=timezone.utc)
+        last = datetime.fromtimestamp(result[-1]["ts"] / 1000, tz=timezone.utc)
+        span_days = (result[-1]["ts"] - result[0]["ts"]) / 1000 / 86400
+        requested_days = (end_ts_ms - start_ts_ms) / 1000 / 86400
+        logger.info(
+            f"[{symbol}] {interval}: {len(result)} candle | "
+            f"{first.date()} → {last.date()} "
+            f"(\~{span_days:.0f} hari tersedia, diminta \~{requested_days:.0f} hari)"
+        )
+        if span_days < requested_days * 0.9:
+            logger.warning(
+                f"[{symbol}] {interval}: data LEBIH PENDEK dari yang diminta "
+                f"({span_days:.0f} vs {requested_days:.0f} hari). "
+                f"Penyebab umum: batas histori OKX atau pair baru listing. "
+                f"--months lebih besar tidak akan menambah data."
+            )
 
+    return result
 
 # ============================================================
 # PAIR
