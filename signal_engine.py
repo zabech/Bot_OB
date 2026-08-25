@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timezone
 
 import db
@@ -145,6 +146,7 @@ async def send_signal(
     # Mitigated hanya di-set kalau harga benar-benar menembus zona (50%/penuh).
     # Kalau harga keluar lalu masuk lagi nanti, alerted di-reset → boleh alert ulang.
     zone["alerted"] = True
+    last_alert_times[symbol] = time.time()
     logger.info(f"[{symbol}] Alert terkirim ke Telegram.")
 
     save_active_trade(
@@ -225,6 +227,16 @@ def is_zone_mitigated_by_price(zone: dict, current_price: float) -> bool:
 def is_price_inside_zone(zone: dict, current_price: float) -> bool:
     return zone["bottom"] <= current_price <= zone["top"]
 
+def is_in_cooldown(symbol: str) -> bool:
+    """
+    Cek apakah pair masih dalam masa cooldown setelah alert terakhir.
+    Return True jika masih cooldown (jangan kirim alert baru).
+    """
+    last_ts = last_alert_times.get(symbol)
+    if last_ts is None:
+        return False
+    elapsed_minutes = (time.time() - last_ts) / 60.0
+    return elapsed_minutes < ALERT_COOLDOWN_MINUTES
 
 async def validate_zone(
     symbol: str,
@@ -272,6 +284,15 @@ async def validate_zone(
     if zone.get("alerted"):
         logger.info(
             f"[{symbol}] Zona {zone['type']} sudah alerted di visit ini, skip."
+        )
+        return False
+
+    # 4b) Cooldown per pair — cegah spam alert beruntun
+    if is_in_cooldown(symbol):
+        remaining = ALERT_COOLDOWN_MINUTES - (time.time() - last_alert_times[symbol]) / 60.0
+        logger.info(
+            f"[{symbol}] BLOCKED — masih cooldown "
+            f"({remaining:.0f} menit tersisa dari {ALERT_COOLDOWN_MINUTES} menit)."
         )
         return False
 
