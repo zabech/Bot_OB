@@ -15,7 +15,7 @@ from health import send_health_alert
 async def check_symbol(app, symbol: str) -> bool:
     """Cek satu pair di semua HTF, kirim alert kalau ada zona valid + konfirmasi LTF.
     Return True kalau berhasil dicek, False kalau gagal (untuk health tracking)."""
-    global active_zones
+    # Mutasi dict di state.py — tidak perlu keyword global
     if symbol not in active_zones:
         active_zones[symbol] = {tf: [] for tf in HTF_LIST}
 
