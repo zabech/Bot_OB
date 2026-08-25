@@ -107,5 +107,9 @@ top_pairs_cache = {"symbols": [], "last_refresh": 0}
 # Format: { "BTC-USDT-SWAP": {"entry": 65000, "sl": 64200, "tp": 66600, "zone_type": "bullish", "htf": "4H"} }
 active_trades = {}
 
+# Timestamp alert terakhir per pair (unix seconds) — untuk enforce ALERT_COOLDOWN_MINUTES
+# Format: { "BTC-USDT-SWAP": 1712345678.0, ... }
+last_alert_times = {}
+
 # Timestamp health alert terakhir, untuk hindari spam notifikasi "bot bermasalah"
 last_health_alert_time = {"ts": 0}
