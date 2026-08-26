@@ -105,6 +105,18 @@ def build_signal_data(
         return None
 
     risk_pct = risk / current_price * 100
+    if risk_pct > MAX_RISK_PCT:
+        logger.warning(
+            f"Risk {risk_pct:.2f}% > MAX_RISK_PCT ({MAX_RISK_PCT}%) "
+            f"@ {current_price:.4g} — sinyal dibatalkan."
+        )
+        return None
+    if risk_pct < MIN_RISK_PCT:
+        logger.warning(
+            f"Risk {risk_pct:.2f}% < MIN_RISK_PCT ({MIN_RISK_PCT}%) "
+            f"@ {current_price:.4g} — sinyal dibatalkan."
+        )
+        return None
 
     atr_val = calculate_atr(
         htf_candles_list,
