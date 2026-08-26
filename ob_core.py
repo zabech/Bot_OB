@@ -316,13 +316,17 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
                          swing_lookback: int = 10,
                          use_atr_impulse: bool = True,
                          impulse_atr_multiplier: float = 1.5,
-                         direction_filter: str = "all") -> list:
+                         direction_filter: str = "all",
+                         atr_period: int = 14) -> list:
     """
     Deteksi order block dengan filter kualitas lengkap.
 
     direction_filter: "all" (default), "bullish", atau "bearish".
     Kalau bukan "all", zona dengan arah yang tidak sesuai akan di-skip
     lebih awal (sebelum filter BOS/FVG/mitigasi yang lebih berat).
+
+    atr_period: periode ATR untuk filter impuls (default 14).
+    Harus disamakan dengan ATR_PERIOD di config agar konsisten dengan SL.
     """
     # Normalisasi ke list of dict
     if HAS_PANDAS and hasattr(data, 'iterrows'):
@@ -339,12 +343,15 @@ def detect_order_blocks(data, max_zones: int, impulse_min_percent: float,
     volume_threshold = calculate_volume_threshold(candles, volume_multiplier)
     logger.info(f"Volume threshold (median × {volume_multiplier}): {volume_threshold:.2f}")
 
-    # ── ATR untuk impulse filter ──
+    # ── ATR untuk impulse filter (pakai atr_period, bukan hardcode 14) ──
     atr = None
     if use_atr_impulse:
-        atr = calculate_atr(candles, 14)
+        atr = calculate_atr(candles, atr_period)
         if atr is not None:
-            logger.info(f"ATR untuk {len(candles)} candle: {atr:.4f}, threshold: {atr * impulse_atr_multiplier:.4f}")
+            logger.info(
+                f"ATR({atr_period}) untuk {len(candles)} candle: {atr:.4f}, "
+                f"threshold: {atr * impulse_atr_multiplier:.4f}"
+            )
         else:
             logger.info("ATR tidak tersedia, menggunakan fixed impulse_min_percent")
     else:
