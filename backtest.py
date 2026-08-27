@@ -564,6 +564,7 @@ def simulate_pair(
                 swing_lookback=SWING_LOOKBACK,
                 use_atr_impulse=USE_ATR_IMPULSE,
                 impulse_atr_multiplier=IMPULSE_ATR_MULTIPLIER,
+                atr_period=ATR_PERIOD,
             )
 
             # DIAGNOSTIC RAW OB — SEBELUM FILTER DIRECTION
@@ -703,6 +704,11 @@ def simulate_pair(
                 )
 
                 if risk <= 0:
+                    continue
+
+                # Batas risk % — sama dengan LIVE (MAX_RISK_PCT / MIN_RISK_PCT)
+                risk_pct = risk / current_price * 100
+                if risk_pct > MAX_RISK_PCT or risk_pct < MIN_RISK_PCT:
                     continue
 
                 # ------------------------------------------------
