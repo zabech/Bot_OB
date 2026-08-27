@@ -10,12 +10,16 @@ def _is_trade_geometry_invalid(trade: dict) -> bool:
     """
     Deteksi trade dengan SL/TP mustahil dicapai (contoh TP negatif / di sisi salah).
     Trade seperti ini harus ditutup paksa supaya pair tidak terkunci selamanya.
+
+    PENTING: setelah trailing +1R, SL digeser ke entry (breakeven).
+    Kondisi SL == entry itu SENGAJA, bukan geometri invalid.
     """
     try:
         entry = float(trade["entry"])
         sl = float(trade["sl"])
         tp = trade.get("tp")
         zone_type = trade["zone_type"]
+        breakeven = bool(trade.get("breakeven_triggered", False))
     except (KeyError, TypeError, ValueError):
         return True
 
@@ -30,21 +34,33 @@ def _is_trade_geometry_invalid(trade: dict) -> bool:
     if tp is not None and float(tp) <= 0:
         return True
 
+    # Toleransi float kecil (harga low-cap)
+    eps = max(entry * 1e-8, 1e-12)
+
     if zone_type == "bullish":
-        # Harus: SL < entry < TP
-        if sl >= entry:
-            return True
-        if tp is not None and float(tp) <= entry:
+        # Normal: SL < entry < TP
+        # Setelah breakeven: SL ≈ entry, tetap butuh TP > entry
+        if breakeven:
+            if sl > entry + eps:
+                return True  # SL di atas entry = salah arah
+        else:
+            if sl >= entry - eps:
+                return True  # SL harus di bawah entry
+        if tp is not None and float(tp) <= entry + eps:
             return True
     else:
-        # Harus: TP < entry < SL
-        if sl <= entry:
-            return True
-        if tp is not None and float(tp) >= entry:
+        # Normal: TP < entry < SL
+        # Setelah breakeven: SL ≈ entry, tetap butuh TP < entry
+        if breakeven:
+            if sl < entry - eps:
+                return True  # SL di bawah entry = salah arah
+        else:
+            if sl <= entry + eps:
+                return True  # SL harus di atas entry
+        if tp is not None and float(tp) >= entry - eps:
             return True
 
     return False
-
 
 async def check_active_trade(app, symbol: str, current_price: float) -> bool:
     """
