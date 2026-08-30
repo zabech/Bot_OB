@@ -35,7 +35,7 @@ ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))                     # perio
 ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "2.0"))          # SL = invalidasi ± (ATR × multiplier)
 # Batas risk (% dari harga entry). Sinyal dibatalkan jika risk di luar rentang ini.
 # Mencegah SL ATR terlalu lebar di alt (risk ekstrem) atau terlalu sempit (noise).
-MAX_RISK_PCT = float(os.environ.get("MAX_RISK_PCT", "10.0"))   # default max 5%
+MAX_RISK_PCT = float(os.environ.get("MAX_RISK_PCT", "15.0"))   # default max 5%
 MIN_RISK_PCT = float(os.environ.get("MIN_RISK_PCT", "0.15"))  # default min 0.15%
 
 # Konfigurasi deteksi OB tingkat lanjut
