@@ -75,7 +75,7 @@ SESSION_NY_START = int(os.environ.get("SESSION_NY_START", "13"))
 SESSION_NY_END = int(os.environ.get("SESSION_NY_END", "22"))
 
 # Scanner multi-pair (OKX Futures - USDT-margined swap/perpetual)
-TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", "40"))
+TOP_N_PAIRS = int(os.environ.get("TOP_N_PAIRS", "30"))
 PAIR_QUOTE = os.environ.get("PAIR_QUOTE", "USDT")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "5"))
 BATCH_DELAY_SECONDS = float(os.environ.get("BATCH_DELAY_SECONDS", "2"))
