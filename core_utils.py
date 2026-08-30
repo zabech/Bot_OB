@@ -18,13 +18,36 @@ def get_active_symbols() -> list:
     now = time.time()
     if not top_pairs_cache["symbols"] or (now - top_pairs_cache["last_refresh"]) > SYMBOL_REFRESH_HOURS * 3600:
         try:
-            symbols = get_top_volume_pairs(TOP_N_PAIRS, PAIR_QUOTE)
+            # Ambil pool lebih besar supaya bisa mengisi kuota scan
+            # setelah pair dengan trade aktif di-skip.
+            pool_n = max(TOP_N_PAIRS * 3, TOP_N_PAIRS + 50)
+            symbols = get_top_volume_pairs(pool_n, PAIR_QUOTE)
             top_pairs_cache["symbols"] = symbols
             top_pairs_cache["last_refresh"] = now
             logger.info(f"Daftar top {len(symbols)} pair di-refresh: {symbols[:5]}...")
         except Exception as e:
             logger.error(f"Gagal refresh daftar pair: {e}")
     return top_pairs_cache["symbols"]
+
+def get_scan_symbols(n: int | None = None) -> list:
+    """
+    Ambil n pair untuk SCAN SINYAL BARU: top volume yang TIDAK sedang
+    punya trade aktif. Kuota penuh (default TOP_N_PAIRS) diisi dari
+    pool yang lebih besar, jadi 23 trade aktif tidak mengurangi
+    jumlah pair yang di-scan untuk peluang sinyal baru.
+    """
+    if n is None:
+        n = TOP_N_PAIRS
+    pool = get_active_symbols()
+    free = [s for s in pool if s not in active_trades]
+    selected = free[:n]
+    if len(selected) < n:
+        logger.warning(
+            f"Hanya {len(selected)}/{n} pair bebas untuk scan sinyal "
+            f"(pool={len(pool)}, active_trades={len(active_trades)}). "
+            f"Pertimbangkan naikkan MIN_VOLUME / pool."
+        )
+    return selected
 
 def get_current_macro_regime() -> str | None:
     """
