@@ -22,6 +22,42 @@ def monitoring_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🗓️ Ringkasan Harian",  callback_data="mon_daily")],
     ])
 
+_MONTH_ID = {
+    1: "Januari", 2: "Februari", 3: "Maret", 4: "April",
+    5: "Mei", 6: "Juni", 7: "Juli", 8: "Agustus",
+    9: "September", 10: "Oktober", 11: "November", 12: "Desember",
+}
+
+
+def stats_month_keyboard(months: list) -> InlineKeyboardMarkup:
+    """
+    Keyboard pilihan bulan untuk statistik alert.
+    months: list dari db.get_available_months() → year, month, label, count
+    """
+    rows = []
+    row = []
+    for m in months:
+        label = f"{_MONTH_ID.get(m['month'], m['month'])} {m['year']} ({m['count']})"
+        cb = f"stats_month_{m['year']}_{m['month']:02d}"
+        row.append(InlineKeyboardButton(label, callback_data=cb))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+
+    rows.append([
+        InlineKeyboardButton("📊 Semua waktu", callback_data="stats_all"),
+        InlineKeyboardButton("« Monitoring", callback_data="mon_back"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def stats_detail_keyboard(year: int, month: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Refresh", callback_data=f"stats_month_{year}_{month:02d}")],
+        [InlineKeyboardButton("« Pilih bulan", callback_data="mon_stats")],
+    ])
 
 def analisis_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
