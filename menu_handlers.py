@@ -17,6 +17,8 @@ from keyboards import (
     backtest_keyboard,
     pengaturan_keyboard,
     main_keyboard,
+    stats_month_keyboard,
+    stats_detail_keyboard,
 )
 
 from core_utils import (
@@ -27,7 +29,7 @@ from core_utils import (
 
 from market_utils import get_current_price, get_session_info
 from handlers import show_trades_page
-from stats import format_stats_text
+from stats import format_stats_text, format_month_title
 from backtest_handlers import run_backtest_async
 from utils import drop_unclosed_last_candle
 
@@ -224,17 +226,66 @@ async def inline_callback(update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer(f"Halaman {current_page}")
 
     elif data == "mon_stats":
+        # Tampilkan pilihan bulan
+        try:
+            months = db.get_available_months(limit=12)
+            if not months:
+                await query.edit_message_text(
+                    "Belum ada data alert di database.\n"
+                    "Statistik bulanan akan muncul setelah ada alert.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("« Monitoring", callback_data="mon_back")
+                    ]]),
+                )
+            else:
+                await query.edit_message_text(
+                    "📈 Statistik Alert\n\nPilih bulan:",
+                    reply_markup=stats_month_keyboard(months),
+                )
+        except Exception as e:
+            await query.edit_message_text(f"Gagal ambil daftar bulan: {e}")
+
+    elif data == "stats_all":
         try:
             stats = db.get_stats()
             pnl = db.get_pnl_summary()
             await query.edit_message_text(
                 format_stats_text(stats, "📈 Statistik Alert (semua waktu)", pnl),
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔄 Refresh", callback_data="mon_stats")
-                ]])
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Refresh", callback_data="stats_all")],
+                    [InlineKeyboardButton("« Pilih bulan", callback_data="mon_stats")],
+                ]),
             )
         except Exception as e:
             await query.edit_message_text(f"Gagal ambil statistik: {e}")
+
+    elif data.startswith("stats_month_"):
+        # Format: stats_month_YYYY_MM
+        try:
+            parts = data.split("_")
+            year = int(parts[2])
+            month = int(parts[3])
+            stats = db.get_stats_for_month(year, month)
+            pnl = db.get_pnl_summary_for_month(year, month)
+            title = format_month_title(year, month)
+            text = format_stats_text(stats, title, pnl)
+            text += (
+                "\n\nKeterangan: TP/SL dihitung dari trade yang selesai "
+                "(resolved) di bulan ini. Open = alert yang dibuat di bulan "
+                "ini masih berjalan."
+            )
+            await query.edit_message_text(
+                text,
+                reply_markup=stats_detail_keyboard(year, month),
+            )
+        except Exception as e:
+            await query.edit_message_text(f"Gagal ambil statistik bulan: {e}")
+
+    elif data == "mon_back":
+        await query.edit_message_text(
+            "Pilih menu Monitoring:",
+            reply_markup=monitoring_keyboard(),
+        )
 
     elif data == "mon_daily":
         try:
