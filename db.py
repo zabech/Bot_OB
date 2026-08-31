@@ -250,7 +250,6 @@ def resolve_alert(alert_id: int, status: str):
     finally:
         conn.close()
 
-
 def resolve_alert_by_symbol(symbol: str, status: str, pnl_pct: float | None = None):
     """Tandai alert open terbaru untuk symbol ini sebagai selesai, simpan PnL."""
     conn = get_connection()
@@ -265,7 +264,6 @@ def resolve_alert_by_symbol(symbol: str, status: str, pnl_pct: float | None = No
         conn.commit()
     finally:
         conn.close()
-
 
 def get_pnl_summary():
     """Hitung total dan rata-rata PnL dari semua trade yang sudah close."""
@@ -289,7 +287,6 @@ def get_pnl_summary():
     finally:
         conn.close()
 
-
 def update_alert_target(alert_id: int, target: float):
     """Update nilai target (TP) untuk alert yang sebelumnya NULL."""
     conn = get_connection()
@@ -301,7 +298,6 @@ def update_alert_target(alert_id: int, target: float):
         conn.commit()
     finally:
         conn.close()
-
 
 def update_alert_sl(symbol: str, new_sl: float):
     """Update SL (invalidation) untuk alert open terbaru — dipakai saat trailing stop."""
@@ -317,7 +313,6 @@ def update_alert_sl(symbol: str, new_sl: float):
         conn.commit()
     finally:
         conn.close()
-
 
 def get_stats():
     """Hitung ringkasan statistik: total alert, win rate, breakdown status."""
@@ -362,7 +357,6 @@ def get_stats():
         }
     finally:
         conn.close()
-
 
 def get_daily_stats():
     """Hitung ringkasan statistik untuk alert yang dibuat dalam 24 jam terakhir (rolling)."""
@@ -409,6 +403,165 @@ def get_daily_stats():
             "win_rate": win_rate,
             "top_pairs": top_pairs,
         }
+    finally:
+        conn.close()
+
+def get_available_months(limit: int = 12) -> list:
+    """
+    Daftar bulan yang punya data alert (berdasarkan created_at).
+    Return list dict: [{"year": 2026, "month": 8, "label": "2026-08", "count": 12}, ...]
+    Urut terbaru dulu.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT
+                    EXTRACT(YEAR FROM created_at)::int AS year,
+                    EXTRACT(MONTH FROM created_at)::int AS month,
+                    COUNT(*) AS count
+                FROM alerts
+                WHERE created_at IS NOT NULL
+                GROUP BY 1, 2
+                ORDER BY 1 DESC, 2 DESC
+                LIMIT %s;
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+        result = []
+        for r in rows:
+            y, m = int(r["year"]), int(r["month"])
+            result.append({
+                "year": y,
+                "month": m,
+                "label": f"{y}-{m:02d}",
+                "count": int(r["count"]),
+            })
+        return result
+    finally:
+        conn.close()
+
+def get_stats_for_month(year: int, month: int) -> dict:
+    """
+    Statistik alert untuk satu bulan kalender.
+    - Total / open: berdasarkan created_at di bulan itu
+    - hit_target / invalidated / win rate: trade yang SELESAI (TP/SL)
+      di bulan itu (resolved_at; fallback created_at)
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM alerts
+                WHERE created_at IS NOT NULL
+                  AND EXTRACT(YEAR FROM created_at) = %s
+                  AND EXTRACT(MONTH FROM created_at) = %s
+                GROUP BY status;
+                """,
+                (year, month),
+            )
+            created_rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM alerts
+                WHERE created_at IS NOT NULL
+                  AND EXTRACT(YEAR FROM created_at) = %s
+                  AND EXTRACT(MONTH FROM created_at) = %s;
+                """,
+                (year, month),
+            )
+            total = int(cur.fetchone()["total"])
+
+            cur.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM alerts
+                WHERE status IN ('hit_target', 'invalidated')
+                  AND COALESCE(resolved_at, created_at) IS NOT NULL
+                  AND EXTRACT(YEAR FROM COALESCE(resolved_at, created_at)) = %s
+                  AND EXTRACT(MONTH FROM COALESCE(resolved_at, created_at)) = %s
+                GROUP BY status;
+                """,
+                (year, month),
+            )
+            resolved_rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT symbol, COUNT(*) AS count
+                FROM alerts
+                WHERE created_at IS NOT NULL
+                  AND EXTRACT(YEAR FROM created_at) = %s
+                  AND EXTRACT(MONTH FROM created_at) = %s
+                GROUP BY symbol
+                ORDER BY count DESC
+                LIMIT 5;
+                """,
+                (year, month),
+            )
+            top_pairs = cur.fetchall()
+
+        created_counts = {r["status"]: int(r["count"]) for r in created_rows}
+        resolved_counts = {r["status"]: int(r["count"]) for r in resolved_rows}
+        hit = resolved_counts.get("hit_target", 0)
+        invalid = resolved_counts.get("invalidated", 0)
+        open_count = created_counts.get("open", 0)
+        resolved = hit + invalid
+        win_rate = (hit / resolved * 100) if resolved > 0 else None
+
+        return {
+            "total": total,
+            "open": open_count,
+            "hit_target": hit,
+            "invalidated": invalid,
+            "win_rate": win_rate,
+            "top_pairs": top_pairs,
+            "year": year,
+            "month": month,
+        }
+    finally:
+        conn.close()
+
+def get_pnl_summary_for_month(year: int, month: int) -> dict:
+    """PnL trade selesai yang resolved di bulan tersebut."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_closed,
+                    SUM(CASE WHEN status = 'hit_target' THEN 1 ELSE 0 END) AS wins,
+                    SUM(CASE WHEN status = 'invalidated' THEN 1 ELSE 0 END) AS losses,
+                    AVG(pnl_pct) AS avg_pnl,
+                    SUM(pnl_pct) AS total_pnl,
+                    MAX(pnl_pct) AS best_trade,
+                    MIN(pnl_pct) AS worst_trade
+                FROM alerts
+                WHERE status IN ('hit_target', 'invalidated')
+                  AND pnl_pct IS NOT NULL
+                  AND COALESCE(resolved_at, created_at) IS NOT NULL
+                  AND EXTRACT(YEAR FROM COALESCE(resolved_at, created_at)) = %s
+                  AND EXTRACT(MONTH FROM COALESCE(resolved_at, created_at)) = %s;
+                """,
+                (year, month),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else {
+                "total_closed": 0,
+                "wins": 0,
+                "losses": 0,
+                "avg_pnl": None,
+                "total_pnl": None,
+                "best_trade": None,
+                "worst_trade": None,
+            }
     finally:
         conn.close()
 
