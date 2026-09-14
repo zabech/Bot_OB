@@ -40,7 +40,7 @@ MIN_RISK_PCT = float(os.environ.get("MIN_RISK_PCT", "0.15"))  # default min 0.15
 
 # Konfigurasi deteksi OB tingkat lanjut
 REQUIRE_BOS = os.environ.get("REQUIRE_BOS", "true").lower() == "true"
-REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "false").lower() == "true"
+REQUIRE_FVG = os.environ.get("REQUIRE_FVG", "true").lower() == "true"
 REQUIRE_LIQUIDITY_SWEEP = os.environ.get("REQUIRE_LIQUIDITY_SWEEP", "false").lower() == "true"
 MITIGATION_50PCT = os.environ.get("MITIGATION_50PCT", "true").lower() == "true"
 DIRECTION_FILTER = os.environ.get("DIRECTION_FILTER", "all").lower()  # "all" / "bullish" / "bearish"
