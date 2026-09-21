@@ -266,7 +266,7 @@ def resolve_alert_by_symbol(symbol: str, status: str, pnl_pct: float | None = No
         conn.close()
 
 def get_pnl_summary():
-    """Hitung total dan rata-rata PnL dari semua trade yang sudah close."""
+    """Hitung total dan rata-rata PnL dari semua trade yang sudah close, plus total TP dan SL terpisah."""
     conn = get_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -278,7 +278,9 @@ def get_pnl_summary():
                     AVG(pnl_pct) as avg_pnl,
                     SUM(pnl_pct) as total_pnl,
                     MAX(pnl_pct) as best_trade,
-                    MIN(pnl_pct) as worst_trade
+                    MIN(pnl_pct) as worst_trade,
+                    COALESCE(SUM(CASE WHEN status = 'hit_target' THEN pnl_pct ELSE 0 END), 0) as total_tp_pnl,
+                    COALESCE(SUM(CASE WHEN status = 'invalidated' THEN pnl_pct ELSE 0 END), 0) as total_sl_pnl
                 FROM alerts
                 WHERE status IN ('hit_target', 'invalidated')
                 AND pnl_pct IS NOT NULL;
@@ -529,7 +531,7 @@ def get_stats_for_month(year: int, month: int) -> dict:
         conn.close()
 
 def get_pnl_summary_for_month(year: int, month: int) -> dict:
-    """PnL trade selesai yang resolved di bulan tersebut."""
+    """PnL trade selesai yang resolved di bulan tersebut, plus total TP dan SL terpisah."""
     conn = get_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -542,7 +544,9 @@ def get_pnl_summary_for_month(year: int, month: int) -> dict:
                     AVG(pnl_pct) AS avg_pnl,
                     SUM(pnl_pct) AS total_pnl,
                     MAX(pnl_pct) AS best_trade,
-                    MIN(pnl_pct) AS worst_trade
+                    MIN(pnl_pct) AS worst_trade,
+                    COALESCE(SUM(CASE WHEN status = 'hit_target' THEN pnl_pct ELSE 0 END), 0) AS total_tp_pnl,
+                    COALESCE(SUM(CASE WHEN status = 'invalidated' THEN pnl_pct ELSE 0 END), 0) AS total_sl_pnl
                 FROM alerts
                 WHERE status IN ('hit_target', 'invalidated')
                   AND pnl_pct IS NOT NULL
@@ -561,9 +565,12 @@ def get_pnl_summary_for_month(year: int, month: int) -> dict:
                 "total_pnl": None,
                 "best_trade": None,
                 "worst_trade": None,
+                "total_tp_pnl": 0,
+                "total_sl_pnl": 0,
             }
     finally:
         conn.close()
+
 
 def get_last_alert_times() -> dict:
     """
