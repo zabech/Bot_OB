@@ -29,17 +29,12 @@ def format_stats_text(stats: dict, title: str, pnl: dict = None) -> str:
         lines.append(f"Trade selesai: {resolved}")
 
     if pnl and pnl.get("total_closed"):
-        total_pnl = pnl.get("total_pnl") or 0
-        avg_pnl = pnl.get("avg_pnl") or 0
-        best = pnl.get("best_trade")
-        worst = pnl.get("worst_trade")
-        lines.append("\n💰 Ringkasan PnL (trade selesai):")
-        lines.append(f"  Total PnL   : {float(total_pnl):+.2f}%")
-        lines.append(f"  Rata-rata   : {float(avg_pnl):+.2f}% per trade")
-        if best is not None:
-            lines.append(f"  Trade terbaik: {float(best):+.2f}%")
-        if worst is not None:
-            lines.append(f"  Trade terburuk: {float(worst):+.2f}%")
+        total_tp = float(pnl.get("total_tp_pnl") or 0)
+        total_sl = float(pnl.get("total_sl_pnl") or 0)
+        hasil = total_tp + total_sl
+        lines.append(f"\nTotal TP: +{total_tp:.1f}%")
+        lines.append(f"Total SL: {total_sl:.1f}%")
+        lines.append(f"Hasil: {hasil:+.1f}%")
 
     if stats.get("top_pairs"):
         lines.append("\n🔝 Pair paling sering alert:")
