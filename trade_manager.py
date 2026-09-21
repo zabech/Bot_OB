@@ -243,13 +243,20 @@ async def check_open_alerts():
         if price is None:
             continue
 
+        entry = float(alert["entry_price"])
+        invalidation = float(alert["invalidation"])
+
         if alert["zone_type"] == "bullish":
             if alert["target"] is not None and price >= alert["target"]:
-                db.resolve_alert(alert["id"], "hit_target")
-            elif price <= alert["invalidation"]:
-                db.resolve_alert(alert["id"], "invalidated")
+                pnl_pct = abs(price - entry) / entry * 100
+                db.resolve_alert_by_symbol(alert["symbol"], "hit_target", pnl_pct=pnl_pct)
+            elif price <= invalidation:
+                pnl_pct = (invalidation - entry) / entry * 100
+                db.resolve_alert_by_symbol(alert["symbol"], "invalidated", pnl_pct=pnl_pct)
         else:  # bearish
             if alert["target"] is not None and price <= alert["target"]:
-                db.resolve_alert(alert["id"], "hit_target")
-            elif price >= alert["invalidation"]:
-                db.resolve_alert(alert["id"], "invalidated")
+                pnl_pct = abs(price - entry) / entry * 100
+                db.resolve_alert_by_symbol(alert["symbol"], "hit_target", pnl_pct=pnl_pct)
+            elif price >= invalidation:
+                pnl_pct = (entry - invalidation) / entry * 100
+                db.resolve_alert_by_symbol(alert["symbol"], "invalidated", pnl_pct=pnl_pct)
