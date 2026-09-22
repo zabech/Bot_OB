@@ -257,9 +257,12 @@ def resolve_alert_by_symbol(symbol: str, status: str, pnl_pct: float | None = No
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE alerts SET status = %s, resolved_at = now(), pnl_pct = %s
-                WHERE symbol = %s AND status = 'open'
-                ORDER BY created_at DESC
-                LIMIT 1;
+                WHERE id = (
+                    SELECT id FROM alerts
+                    WHERE symbol = %s AND status = 'open'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                );
             """, (status, pnl_pct, symbol))
         conn.commit()
     finally:
