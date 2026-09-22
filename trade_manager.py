@@ -246,17 +246,20 @@ async def check_open_alerts():
         entry = float(alert["entry_price"])
         invalidation = float(alert["invalidation"])
 
-        if alert["zone_type"] == "bullish":
-            if alert["target"] is not None and price >= alert["target"]:
-                pnl_pct = abs(price - entry) / entry * 100
-                db.resolve_alert_by_symbol(alert["symbol"], "hit_target", pnl_pct=pnl_pct)
-            elif price <= invalidation:
-                pnl_pct = (invalidation - entry) / entry * 100
-                db.resolve_alert_by_symbol(alert["symbol"], "invalidated", pnl_pct=pnl_pct)
-        else:  # bearish
-            if alert["target"] is not None and price <= alert["target"]:
-                pnl_pct = abs(price - entry) / entry * 100
-                db.resolve_alert_by_symbol(alert["symbol"], "hit_target", pnl_pct=pnl_pct)
-            elif price >= invalidation:
-                pnl_pct = (entry - invalidation) / entry * 100
-                db.resolve_alert_by_symbol(alert["symbol"], "invalidated", pnl_pct=pnl_pct)
+        try:
+            if alert["zone_type"] == "bullish":
+                if alert["target"] is not None and price >= alert["target"]:
+                    pnl_pct = abs(price - entry) / entry * 100
+                    db.resolve_alert_by_symbol(alert["symbol"], "hit_target", pnl_pct=pnl_pct)
+                elif price <= invalidation:
+                    pnl_pct = (invalidation - entry) / entry * 100
+                    db.resolve_alert_by_symbol(alert["symbol"], "invalidated", pnl_pct=pnl_pct)
+            else:  # bearish
+                if alert["target"] is not None and price <= alert["target"]:
+                    pnl_pct = abs(price - entry) / entry * 100
+                    db.resolve_alert_by_symbol(alert["symbol"], "hit_target", pnl_pct=pnl_pct)
+                elif price >= invalidation:
+                    pnl_pct = (entry - invalidation) / entry * 100
+                    db.resolve_alert_by_symbol(alert["symbol"], "invalidated", pnl_pct=pnl_pct)
+        except Exception as e:
+            logger.error(f"[{alert['symbol']}] Gagal resolve open alert: {e}", exc_info=True)
