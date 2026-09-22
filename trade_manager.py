@@ -107,7 +107,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
         try:
             db.resolve_alert_by_symbol(symbol, "invalidated", pnl_pct=pnl_pct)
         except Exception as e:
-            logger.debug(e)
+            logger.error(f"[{symbol}] Gagal resolve_alert_by_symbol (invalidated, geometri invalid): {e}", exc_info=True)
         logger.warning(
             f"[{symbol}] Trade ditutup paksa karena geometri SL/TP invalid "
             f"(entry={entry}, sl={sl}, tp={tp})."
@@ -178,7 +178,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
             profit_pct_final = abs(current_price - entry) / entry * 100
             db.resolve_alert_by_symbol(symbol, "hit_target", pnl_pct=profit_pct_final)
         except Exception as e:
-            logger.debug(e)
+            logger.error(f"[{symbol}] Gagal resolve_alert_by_symbol (hit_target): {e}", exc_info=True)
         return False
 
     if hit_sl:
@@ -210,7 +210,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
         try:
             db.resolve_alert_by_symbol(symbol, status, pnl_pct=pnl_pct)
         except Exception as e:
-            logger.debug(e)
+            logger.error(f"[{symbol}] Gagal resolve_alert_by_symbol ({status}): {e}", exc_info=True)
         return False
         
     return True
