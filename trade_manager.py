@@ -190,7 +190,7 @@ async def check_active_trade(app, symbol: str, current_price: float) -> bool:
         pnl_str = f"+{pnl_pct:.2f}% (breakeven)" if breakeven_triggered else f"-{abs(pnl_pct):.2f}%"
         emoji = "⚖️" if breakeven_triggered else "❌"
         label = "BREAKEVEN" if breakeven_triggered else "SL TERKENA"
-        status = "hit_target" if breakeven_triggered else "invalidated"
+        status = "breakeven" if breakeven_triggered else "invalidated"
         
         entry_time = trade.get("entry_time")
         duration_str = format_duration(entry_time) if entry_time else "N/A"
