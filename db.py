@@ -278,6 +278,7 @@ def get_pnl_summary():
                     COUNT(*) as total_closed,
                     SUM(CASE WHEN status = 'hit_target' THEN 1 ELSE 0 END) as wins,
                     SUM(CASE WHEN status = 'invalidated' THEN 1 ELSE 0 END) as losses,
+                    SUM(CASE WHEN status = 'breakeven' THEN 1 ELSE 0 END) as breakevens,
                     AVG(pnl_pct) as avg_pnl,
                     SUM(pnl_pct) as total_pnl,
                     MAX(pnl_pct) as best_trade,
@@ -285,7 +286,7 @@ def get_pnl_summary():
                     COALESCE(SUM(CASE WHEN status = 'hit_target' THEN pnl_pct ELSE 0 END), 0) as total_tp_pnl,
                     COALESCE(SUM(CASE WHEN status = 'invalidated' THEN pnl_pct ELSE 0 END), 0) as total_sl_pnl
                 FROM alerts
-                WHERE status IN ('hit_target', 'invalidated')
+                WHERE status IN ('hit_target', 'invalidated', 'breakeven')
                 AND pnl_pct IS NOT NULL;
             """)
             return cur.fetchone()
@@ -348,15 +349,17 @@ def get_stats():
         status_counts = {row["status"]: row["count"] for row in rows}
         hit = status_counts.get("hit_target", 0)
         invalid = status_counts.get("invalidated", 0)
+        breakeven = status_counts.get("breakeven", 0)
         open_count = status_counts.get("open", 0)
-        resolved = hit + invalid
-        win_rate = (hit / resolved * 100) if resolved > 0 else None
+        win_denom = hit + invalid
+        win_rate = (hit / win_denom * 100) if win_denom > 0 else None
 
         return {
             "total": total,
             "open": open_count,
             "hit_target": hit,
             "invalidated": invalid,
+            "breakeven": breakeven,
             "win_rate": win_rate,
             "top_pairs": top_pairs,
         }
@@ -396,15 +399,17 @@ def get_daily_stats():
         status_counts = {row["status"]: row["count"] for row in rows}
         hit = status_counts.get("hit_target", 0)
         invalid = status_counts.get("invalidated", 0)
+        breakeven = status_counts.get("breakeven", 0)
         open_count = status_counts.get("open", 0)
-        resolved = hit + invalid
-        win_rate = (hit / resolved * 100) if resolved > 0 else None
+        win_denom = hit + invalid
+        win_rate = (hit / win_denom * 100) if win_denom > 0 else None
 
         return {
             "total": total,
             "open": open_count,
             "hit_target": hit,
             "invalidated": invalid,
+            "breakeven": breakeven,
             "win_rate": win_rate,
             "top_pairs": top_pairs,
         }
@@ -487,7 +492,7 @@ def get_stats_for_month(year: int, month: int) -> dict:
                 """
                 SELECT status, COUNT(*) AS count
                 FROM alerts
-                WHERE status IN ('hit_target', 'invalidated')
+                WHERE status IN ('hit_target', 'invalidated', 'breakeven')
                   AND COALESCE(resolved_at, created_at) IS NOT NULL
                   AND EXTRACT(YEAR FROM COALESCE(resolved_at, created_at)) = %s
                   AND EXTRACT(MONTH FROM COALESCE(resolved_at, created_at)) = %s
@@ -516,15 +521,17 @@ def get_stats_for_month(year: int, month: int) -> dict:
         resolved_counts = {r["status"]: int(r["count"]) for r in resolved_rows}
         hit = resolved_counts.get("hit_target", 0)
         invalid = resolved_counts.get("invalidated", 0)
+        breakeven = resolved_counts.get("breakeven", 0)
         open_count = created_counts.get("open", 0)
-        resolved = hit + invalid
-        win_rate = (hit / resolved * 100) if resolved > 0 else None
+        win_denom = hit + invalid
+        win_rate = (hit / win_denom * 100) if win_denom > 0 else None
 
         return {
             "total": total,
             "open": open_count,
             "hit_target": hit,
             "invalidated": invalid,
+            "breakeven": breakeven,
             "win_rate": win_rate,
             "top_pairs": top_pairs,
             "year": year,
@@ -544,6 +551,7 @@ def get_pnl_summary_for_month(year: int, month: int) -> dict:
                     COUNT(*) AS total_closed,
                     SUM(CASE WHEN status = 'hit_target' THEN 1 ELSE 0 END) AS wins,
                     SUM(CASE WHEN status = 'invalidated' THEN 1 ELSE 0 END) AS losses,
+                    SUM(CASE WHEN status = 'breakeven' THEN 1 ELSE 0 END) AS breakevens,
                     AVG(pnl_pct) AS avg_pnl,
                     SUM(pnl_pct) AS total_pnl,
                     MAX(pnl_pct) AS best_trade,
@@ -551,7 +559,7 @@ def get_pnl_summary_for_month(year: int, month: int) -> dict:
                     COALESCE(SUM(CASE WHEN status = 'hit_target' THEN pnl_pct ELSE 0 END), 0) AS total_tp_pnl,
                     COALESCE(SUM(CASE WHEN status = 'invalidated' THEN pnl_pct ELSE 0 END), 0) AS total_sl_pnl
                 FROM alerts
-                WHERE status IN ('hit_target', 'invalidated')
+                WHERE status IN ('hit_target', 'invalidated', 'breakeven')
                   AND pnl_pct IS NOT NULL
                   AND COALESCE(resolved_at, created_at) IS NOT NULL
                   AND EXTRACT(YEAR FROM COALESCE(resolved_at, created_at)) = %s
@@ -564,6 +572,7 @@ def get_pnl_summary_for_month(year: int, month: int) -> dict:
                 "total_closed": 0,
                 "wins": 0,
                 "losses": 0,
+                "breakevens": 0,
                 "avg_pnl": None,
                 "total_pnl": None,
                 "best_trade": None,
@@ -573,7 +582,6 @@ def get_pnl_summary_for_month(year: int, month: int) -> dict:
             }
     finally:
         conn.close()
-
 
 def get_last_alert_times() -> dict:
     """
