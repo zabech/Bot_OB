@@ -20,11 +20,16 @@ def format_stats_text(stats: dict, title: str, pnl: dict = None) -> str:
         f"Total alert: {stats['total']}",
         f"Masih berjalan (open): {stats['open']}",
         f"✅ Kena TP (hit_target): {stats['hit_target']}",
-        f"❌ Kena SL (invalidated): {stats['invalidated']}",
-        f"Win rate (TP vs SL): {win_rate_text}",
     ]
 
-    resolved = (stats.get("hit_target") or 0) + (stats.get("invalidated") or 0)
+    breakeven = stats.get("breakeven") or 0
+    if breakeven:
+        lines.append(f"⚖️ Breakeven: {breakeven}")
+
+    lines.append(f"❌ Kena SL (invalidated): {stats['invalidated']}")
+    lines.append(f"Win rate (TP vs SL): {win_rate_text}")
+
+    resolved = (stats.get("hit_target") or 0) + (stats.get("invalidated") or 0) + breakeven
     if resolved:
         lines.append(f"Trade selesai: {resolved}")
 
