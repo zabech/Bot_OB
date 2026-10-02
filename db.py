@@ -455,10 +455,9 @@ def get_available_months(limit: int = 12) -> list:
 
 def get_stats_for_month(year: int, month: int) -> dict:
     """
-    Statistik alert untuk satu bulan kalender.
-    - Total / open: berdasarkan created_at di bulan itu
-    - hit_target / invalidated / win rate: trade yang SELESAI (TP/SL)
-      di bulan itu (resolved_at; fallback created_at)
+    Statistik alert untuk satu bulan kalender, berdasarkan kapan SINYAL dibuat
+    (created_at) — bukan kapan resolve. Jadi sinyal yang dibuat di bulan ini
+    tetap masuk laporan bulan ini, berapa pun lama trade itu baru selesai.
     """
     conn = get_connection()
     try:
@@ -490,20 +489,6 @@ def get_stats_for_month(year: int, month: int) -> dict:
 
             cur.execute(
                 """
-                SELECT status, COUNT(*) AS count
-                FROM alerts
-                WHERE status IN ('hit_target', 'invalidated', 'breakeven')
-                  AND COALESCE(resolved_at, created_at) IS NOT NULL
-                  AND EXTRACT(YEAR FROM COALESCE(resolved_at, created_at)) = %s
-                  AND EXTRACT(MONTH FROM COALESCE(resolved_at, created_at)) = %s
-                GROUP BY status;
-                """,
-                (year, month),
-            )
-            resolved_rows = cur.fetchall()
-
-            cur.execute(
-                """
                 SELECT symbol, COUNT(*) AS count
                 FROM alerts
                 WHERE created_at IS NOT NULL
@@ -518,10 +503,9 @@ def get_stats_for_month(year: int, month: int) -> dict:
             top_pairs = cur.fetchall()
 
         created_counts = {r["status"]: int(r["count"]) for r in created_rows}
-        resolved_counts = {r["status"]: int(r["count"]) for r in resolved_rows}
-        hit = resolved_counts.get("hit_target", 0)
-        invalid = resolved_counts.get("invalidated", 0)
-        breakeven = resolved_counts.get("breakeven", 0)
+        hit = created_counts.get("hit_target", 0)
+        invalid = created_counts.get("invalidated", 0)
+        breakeven = created_counts.get("breakeven", 0)
         open_count = created_counts.get("open", 0)
         win_denom = hit + invalid
         win_rate = (hit / win_denom * 100) if win_denom > 0 else None
@@ -541,7 +525,7 @@ def get_stats_for_month(year: int, month: int) -> dict:
         conn.close()
 
 def get_pnl_summary_for_month(year: int, month: int) -> dict:
-    """PnL trade selesai yang resolved di bulan tersebut, plus total TP dan SL terpisah."""
+    """PnL untuk sinyal yang DIBUAT di bulan tersebut (created_at), plus total TP dan SL terpisah."""
     conn = get_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -561,9 +545,9 @@ def get_pnl_summary_for_month(year: int, month: int) -> dict:
                 FROM alerts
                 WHERE status IN ('hit_target', 'invalidated', 'breakeven')
                   AND pnl_pct IS NOT NULL
-                  AND COALESCE(resolved_at, created_at) IS NOT NULL
-                  AND EXTRACT(YEAR FROM COALESCE(resolved_at, created_at)) = %s
-                  AND EXTRACT(MONTH FROM COALESCE(resolved_at, created_at)) = %s;
+                  AND created_at IS NOT NULL
+                  AND EXTRACT(YEAR FROM created_at) = %s
+                  AND EXTRACT(MONTH FROM created_at) = %s;
                 """,
                 (year, month),
             )
