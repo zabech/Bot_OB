@@ -37,7 +37,14 @@ PYTHON = sys.executable
 # Semua skenario dites di window waktu yang SAMA (12 bulan) biar adil.
 
 MONTHS = "24"
-SYMBOLS = "GPS-USDT-SWAP,ZIL-USDT-SWAP"
+# Daftar pair diperluas supaya lebih mewakili universe yang benar-benar
+# di-scan bot secara live (bukan cuma 2 pair acak) — diambil dari pair
+# yang pernah muncul di histori alert bot ini.
+SYMBOLS = (
+    "BOME-USDT-SWAP,PENGU-USDT-SWAP,ARB-USDT-SWAP,DOGE-USDT-SWAP,"
+    "MEME-USDT-SWAP,ANIME-USDT-SWAP,BONK-USDT-SWAP,GALA-USDT-SWAP,"
+    "ZIL-USDT-SWAP,HOME-USDT-SWAP"
+)
 HTF = "4H"
 
 SCENARIOS = [
