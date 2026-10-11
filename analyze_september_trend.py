@@ -15,8 +15,12 @@ Cara pakai (di VPS):
 """
 
 import time
-import db
+
+# PENTING: config harus di-import PERTAMA — config.py yang memanggil
+# load_dotenv() untuk memuat .env. db.py membaca DATABASE_URL langsung
+# saat di-import, jadi kalau db diimpor duluan, .env belum termuat.
 from config import MA_PERIOD
+import db
 from market_utils import calculate_ma
 from backtest import fetch_full_history_raw
 
