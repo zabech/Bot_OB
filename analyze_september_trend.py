@@ -37,7 +37,7 @@ def get_september_signals():
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT symbol, zone_type, htf, entry_price, created_at
+                SELECT symbol, zone_type, htf, entry_price, created_at, status
                 FROM alerts
                 WHERE EXTRACT(YEAR FROM created_at) = 2026
                   AND EXTRACT(MONTH FROM created_at) = 9
@@ -48,6 +48,13 @@ def get_september_signals():
             return [dict(zip(cols, row)) for row in cur.fetchall()]
     finally:
         conn.close()
+
+
+def winrate(hit: int, invalid: int) -> str:
+    denom = hit + invalid
+    if denom == 0:
+        return "- (tidak ada data TP/SL)"
+    return f"{hit}/{denom} = {hit/denom*100:.1f}%"
 
 
 def main():
@@ -63,6 +70,21 @@ def main():
     aligned = 0
     counter = 0
     no_data = 0
+
+    # Penghitung TP/SL per kategori (breakeven sengaja TIDAK dihitung
+    # sebagai menang/kalah, konsisten dengan definisi win rate di bot)
+    cat_hit = {"bullish": 0, "bearish": 0, "aligned": 0, "counter": 0}
+    cat_invalid = {"bullish": 0, "bearish": 0, "aligned": 0, "counter": 0}
+
+    def record_outcome(key, status):
+        if status == "hit_target":
+            cat_hit[key] += 1
+        elif status == "invalidated":
+            cat_invalid[key] += 1
+        # status == "breakeven" -> sengaja diabaikan (netral)
+
+    for s in signals:
+        record_outcome("bullish" if s["zone_type"] == "bullish" else "bearish", s["status"])
 
     print(f"{'Symbol':<18} {'Arah':<8} {'HTF':<4} {'Entry':<14} {'MA50':<14} {'Hasil'}")
     print("-" * 75)
@@ -103,11 +125,13 @@ def main():
         if is_aligned:
             aligned += 1
             hasil = "SEARAH trend"
+            record_outcome("aligned", s["status"])
         else:
             counter += 1
             hasil = "KEBALIKAN trend"
+            record_outcome("counter", s["status"])
 
-        print(f"{s['symbol']:<18} {zone_type:<8} {htf:<4} {entry_price:<14.8g} {ma:<14.8g} {hasil}")
+        print(f"{s['symbol']:<18} {zone_type:<8} {htf:<4} {entry_price:<14.8g} {ma:<14.8g} {hasil} ({s['status']})")
 
         time.sleep(0.15)  # hindari rate limit OKX
 
@@ -120,6 +144,14 @@ def main():
         print(f"Kebalikan trend MA50 : {counter} ({counter/classified*100:.1f}%)")
     if no_data:
         print(f"Tidak bisa dihitung (data kurang/gagal fetch): {no_data}")
+
+    print("\n" + "=" * 75)
+    print("WIN RATE PER KONDISI (TP vs SL, breakeven diabaikan/netral)")
+    print("=" * 75)
+    print(f"1. Signal bullish      : {winrate(cat_hit['bullish'], cat_invalid['bullish'])}")
+    print(f"2. Signal bearish      : {winrate(cat_hit['bearish'], cat_invalid['bearish'])}")
+    print(f"3. Signal searah trend : {winrate(cat_hit['aligned'], cat_invalid['aligned'])}")
+    print(f"   (pembanding) kebalikan trend : {winrate(cat_hit['counter'], cat_invalid['counter'])}")
 
 
 if __name__ == "__main__":
