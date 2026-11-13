@@ -312,9 +312,12 @@ def update_alert_sl(symbol: str, new_sl: float):
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE alerts SET invalidation = %s
-                WHERE symbol = %s AND status = 'open'
-                ORDER BY created_at DESC
-                LIMIT 1;
+                WHERE id = (
+                    SELECT id FROM alerts
+                    WHERE symbol = %s AND status = 'open'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                );
             """, (new_sl, symbol))
         conn.commit()
     finally:
