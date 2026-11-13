@@ -68,7 +68,8 @@ async def on_startup(app):
                 if isinstance(entry_time, datetime):
                     entry_time = entry_time.isoformat()
 
-                breakeven_triggered = False
+                # SL sudah di titik entry (digeser trailing stop) = breakeven aktif
+                breakeven_triggered = abs(sl - entry) <= entry * 0.0001
 
                 # Kalau TP tidak tersimpan di DB, hitung ulang dari R:R
                 if alert["target"]:
