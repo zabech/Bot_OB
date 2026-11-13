@@ -228,6 +228,13 @@ async def check_open_alerts():
     if not open_alerts:
         return
 
+    # Trade yang dipantau di memori ditangani check_active_trade
+    # (trailing stop + notifikasi). Dilewati di sini supaya DB dan memori
+    # tidak berselisih.
+    open_alerts = [a for a in open_alerts if a["symbol"] not in active_trades]
+    if not open_alerts:
+        return
+    
     # Group by symbol biar tidak fetch harga berkali-kali untuk symbol yang sama
     symbols_needed = {a["symbol"] for a in open_alerts}
     current_prices = {}
